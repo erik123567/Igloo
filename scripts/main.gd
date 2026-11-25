@@ -15,6 +15,8 @@ const AudioScript = preload("res://scripts/audio.gd")
 const FxScript = preload("res://scripts/fx.gd")
 const WeatherScript = preload("res://scripts/weather.gd")
 const ArrowScript = preload("res://scripts/arrow.gd")
+const CabinScript = preload("res://scripts/cabin.gd")
+const BearScript = preload("res://scripts/bear.gd")
 
 # ---------- Tuning (change these numbers to balance the game) ----------
 const DAY_LENGTH := 360.0      # real seconds for one full day + night
@@ -24,7 +26,9 @@ const MORNING := 0.28          # full daylight
 const DUSK_START := 0.68       # sun starts setting
 const NIGHT_START := 0.76      # full night, wolves come out
 const WIN_DAYS := 3            # survive this many nights to win
-const HARES_PER_DAY := 5
+const HARES_PER_DAY := 14
+const BEARS := 4
+const FOREST_PACKS := [Vector2(1500, 2400), Vector2(4300, 2000), Vector2(2900, 1900)]
 const MAX_WOLVES := 5
 
 const RECIPES := [
@@ -35,11 +39,20 @@ const RECIPES := [
 	{"key": "bow", "name": "Bow", "cost": {"logs": 1, "sticks": 2}, "note": "shoot arrows from afar"},
 	{"key": "arrows", "name": "5 arrows", "cost": {"sticks": 2, "flint": 1}, "note": ""},
 	{"key": "torch", "name": "Torch", "cost": {"sticks": 3}, "note": "light and a little warmth, T to light"},
+	{"key": "cabin", "name": "Cabin site", "cost": {}, "note": "your home base, build it up with logs"},
 ]
 
-var world_size := Vector2(2400, 1600)
-var shore_y := 1380.0          # ice starts here, open water below
-var spawn_point := Vector2(1200, 950)
+# Zones get colder the further north you go (smaller y = further north).
+const ZONES := [
+	{"name": "Coast", "from_y": 3200.0, "cold": 1.0},
+	{"name": "Boreal forest", "from_y": 1700.0, "cold": 1.1},
+	{"name": "Frozen tundra", "from_y": 600.0, "cold": 1.35},
+	{"name": "Far north", "from_y": -99999.0, "cold": 1.7},
+]
+
+var world_size := Vector2(6000, 4500)
+var shore_y := 4280.0          # ice starts here, open water below
+var spawn_point := Vector2(3000, 4050)
 
 var time_of_day := START_TIME
 var day := 1
@@ -114,6 +127,7 @@ func _ready() -> void:
 	add_child(hud)
 
 	_spawn_hares()
+	_spawn_predators()
 	_update_lighting()
 	hud.show_message("You wake up alone in the snow. It's getting colder...\nFind sticks, flint and a stone to make a fire.", 8.0)
 
@@ -140,6 +154,7 @@ func _setup_input() -> void:
 		"craft_5": [KEY_5],
 		"craft_6": [KEY_6],
 		"craft_7": [KEY_7],
+		"craft_8": [KEY_8],
 		"cycle_weapon": [KEY_F],
 		"torch": [KEY_T],
 		"toggle_help": [KEY_H],
@@ -180,49 +195,70 @@ func _away_from_spawn(x0: float, y0: float, x1: float, y1: float, min_d: float) 
 
 
 func _build_map() -> void:
+	var W := world_size.x
 	var trees: Array[Vector2] = []
-	# Forest edge along the top of the map
-	for i in 80:
-		trees.append(_rand_point(30, 40, world_size.x - 30, 420))
-	# Scattered trees on the open snow
-	for i in 28:
-		trees.append(_away_from_spawn(60, 450, world_size.x - 60, shore_y - 120, 220))
+	# Boreal forest: a thick band across the middle of the map
+	for i in 430:
+		trees.append(_rand_point(40, 1750, W - 40, 3150))
+	# Scattered trees on the coast, a few on the tundra, almost none in the far north
+	for i in 70:
+		trees.append(_away_from_spawn(60, 3200, W - 60, shore_y - 80, 220))
+	for i in 30:
+		trees.append(_rand_point(60, 650, W - 60, 1650))
+	for i in 6:
+		trees.append(_rand_point(60, 60, W - 60, 560))
 	for t in trees:
 		var tree = PineScript.new()
 		tree.main = self
 		tree.position = t
-		tree.size = 2.0 if rng.randf() < 0.25 else 1.0
+		tree.size = 2.0 if (t.y < 3150 and rng.randf() < 0.3) else 1.0
 		world.add_child(tree)
 
-	# Sticks: mostly under trees, a few close to where you wake up
-	for i in 26:
+	# Sticks: mostly under trees, plenty near where you wake up
+	for i in 140:
 		var t: Vector2 = trees[rng.randi() % trees.size()]
 		spawn_resource("sticks", _point_near(t, 18, 50))
-	for i in 10:
-		spawn_resource("sticks", _away_from_spawn(80, 450, world_size.x - 80, shore_y - 60, 100))
+	for i in 30:
+		spawn_resource("sticks", _away_from_spawn(80, 3200, W - 80, shore_y - 60, 100))
+	for i in 4:
+		spawn_resource("sticks", _point_near(spawn_point, 110, 260))
+
+	# Flint outcrops: a couple near the start, more out in the wilds
+	spawn_resource("flint_rock", spawn_point + Vector2(320, -150))
+	spawn_resource("flint_rock", spawn_point + Vector2(-380, -260))
+	for i in 22:
+		spawn_resource("flint_rock", _away_from_spawn(120, 300, W - 120, shore_y - 80, 600))
+
+	# Loose stones (you'll need lots for the cabin)
+	for i in 70:
+		spawn_resource("stone", _rand_point(80, 200, W - 80, shore_y - 40))
 	for i in 3:
-		spawn_resource("sticks", _point_near(spawn_point, 120, 260))
+		spawn_resource("stone", _point_near(spawn_point, 130, 300))
 
-	# Flint outcrops (rocky spots)
-	for p in [Vector2(1520, 1080), Vector2(820, 720), Vector2(1950, 620), Vector2(420, 1150), Vector2(2120, 1220), Vector2(1250, 520)]:
-		spawn_resource("flint_rock", p)
-
-	# Loose stones
-	for i in 14:
-		spawn_resource("stone", _rand_point(80, 450, world_size.x - 80, shore_y - 40))
-	spawn_resource("stone", _point_near(spawn_point, 140, 240))
-
-	# Snow drifts for igloo blocks
-	for i in 24:
-		spawn_resource("snow_drift", _away_from_spawn(80, 460, world_size.x - 80, shore_y - 60, 120))
+	# Snow drifts for igloo blocks, everywhere
+	for i in 120:
+		spawn_resource("snow_drift", _away_from_spawn(80, 100, W - 80, shore_y - 60, 120))
 	for i in 3:
 		spawn_resource("snow_drift", _point_near(spawn_point, 90, 200))
 
-	# Berry bushes near the forest edge
-	for i in 9:
-		spawn_resource("berry_bush", _rand_point(100, 400, world_size.x - 100, 560))
+	# Berry bushes on the coast and along the forest edges
+	for i in 22:
+		spawn_resource("berry_bush", _rand_point(100, 3050, W - 100, shore_y - 80))
+	for i in 18:
+		spawn_resource("berry_bush", _rand_point(100, 1750, W - 100, 3150))
 	spawn_resource("berry_bush", _point_near(spawn_point, 280, 380))
 	spawn_resource("berry_bush", _point_near(spawn_point, 300, 420))
+
+
+func zone_at(pos: Vector2) -> Dictionary:
+	for z in ZONES:
+		if pos.y >= z["from_y"]:
+			return z
+	return ZONES[ZONES.size() - 1]
+
+
+func zone_cold(pos: Vector2) -> float:
+	return zone_at(pos)["cold"]
 
 
 func spawn_resource(kind: String, pos: Vector2, amount: int = 1):
@@ -311,6 +347,8 @@ func _on_nightfall() -> void:
 	for h in get_tree().get_nodes_in_group("hare"):
 		h.queue_free()
 	var count := mini(day + 1, MAX_WOLVES)
+	if player.position.y < 3200.0:
+		count += 2  # the wilds are more dangerous
 	for i in count:
 		var w = WolfScript.new()
 		w.main = self
@@ -330,6 +368,7 @@ func _on_morning() -> void:
 	for n in get_tree().get_nodes_in_group("daily"):
 		n.new_day()
 	_spawn_hares()
+	_spawn_predators()
 	if day > WIN_DAYS and not endless:
 		game_over = true
 		won = true
@@ -345,8 +384,42 @@ func _spawn_hares() -> void:
 	for i in maxi(HARES_PER_DAY - have, 0):
 		var h = HareScript.new()
 		h.main = self
-		h.position = _away_from_spawn(150, 450, world_size.x - 150, shore_y - 80, 250)
+		h.position = _away_from_spawn(150, 700, world_size.x - 150, shore_y - 80, 250)
 		world.add_child(h)
+
+
+## Polar bears in the north and wolf packs living in the forest, topped up every morning.
+func _spawn_predators() -> void:
+	var bears := get_tree().get_nodes_in_group("bear").size()
+	for i in maxi(BEARS - bears, 0):
+		var b = BearScript.new()
+		b.main = self
+		b.position = _away_from_player(rng.randf_range(100, world_size.x - 100), rng.randf_range(150, 1500))
+		b.home = b.position
+		world.add_child(b)
+	var residents := 0
+	for w in get_tree().get_nodes_in_group("wolf"):
+		if w.resident:
+			residents += 1
+	if residents >= FOREST_PACKS.size() * 2:
+		return
+	for den in FOREST_PACKS:
+		for i in 3:
+			var w = WolfScript.new()
+			w.main = self
+			w.resident = true
+			w.home = den
+			w.position = _away_from_player(den.x + rng.randf_range(-80, 80), den.y + rng.randf_range(-80, 80))
+			world.add_child(w)
+
+
+func _away_from_player(x: float, y: float) -> Vector2:
+	var p := Vector2(x, y)
+	if player != null and p.distance_to(player.position) < 500.0:
+		p += (p - player.position).normalized() * 500.0
+	p.x = clampf(p.x, 40, world_size.x - 40)
+	p.y = clampf(p.y, 40, shore_y - 40)
+	return p
 
 
 # ---------- Effects ----------
@@ -419,11 +492,22 @@ func get_nearby_fire(pos: Vector2, max_dist: float):
 	return best
 
 
-func get_igloo_at(pos: Vector2):
-	for ig in get_tree().get_nodes_in_group("igloo"):
-		if ig.is_complete() and ig.contains(pos):
-			return ig
+## The shelter (finished igloo, or cabin with walls) you're standing in, or null.
+func get_shelter_at(pos: Vector2):
+	for group in ["igloo", "cabin"]:
+		for sh in get_tree().get_nodes_in_group(group):
+			if sh.is_shelter_ready() and sh.contains(pos):
+				return sh
 	return null
+
+
+func get_igloo_at(pos: Vector2):
+	return get_shelter_at(pos)
+
+
+func get_home():
+	var cabins := get_tree().get_nodes_in_group("cabin")
+	return cabins[0] if cabins.size() > 0 else null
 
 
 ## True when the player is somewhere wolves won't follow (firelight or a finished igloo).
@@ -436,9 +520,11 @@ func fear_push(pos: Vector2) -> Vector2:
 	for f in get_tree().get_nodes_in_group("fire"):
 		if f.is_lit() and pos.distance_to(f.position) < f.fear_radius():
 			return (pos - f.position).normalized()
-	for ig in get_tree().get_nodes_in_group("igloo"):
-		if ig.is_complete() and pos.distance_to(ig.position) < ig.radius() + 22.0:
-			return (pos - ig.position).normalized()
+	for group in ["igloo", "cabin"]:
+		for sh in get_tree().get_nodes_in_group(group):
+			if sh.blocks(pos):
+				var away: Vector2 = pos - sh.center()
+				return away.normalized() if away.length() > 0.1 else Vector2.DOWN
 	return Vector2.ZERO
 
 
@@ -483,6 +569,13 @@ func try_craft(which: int) -> void:
 			if f.position.distance_to(place) < 40:
 				hud.show_message("There's already a fire here.")
 				return
+	elif key == "cabin":
+		if get_home() != null:
+			hud.show_message("You already have a cabin. Keep building it up!")
+			return
+		place = player.position + player.facing * 70.0 + Vector2(0, 40)
+		place.x = clampf(place.x, 80, world_size.x - 80)
+		place.y = clampf(place.y, 120, shore_y - 10)
 	elif key == "igloo":
 		place = player.position + player.facing * 50.0
 		place.x = clampf(place.x, 50, world_size.x - 50)
@@ -509,6 +602,12 @@ func try_craft(which: int) -> void:
 			igloo.position = place
 			world.add_child(igloo)
 			hud.show_message("Igloo marked. Cut snow blocks from snow drifts,\nthen hold E at the igloo to place them (0/%d)." % igloo.blocks_needed(), 6.0)
+		"cabin":
+			var cabin = CabinScript.new()
+			cabin.main = self
+			cabin.position = place
+			world.add_child(cabin)
+			hud.show_message("Cabin site marked. Haul logs back here and hold E to build:\nfloor (6 logs), walls (10), roof and door (8 logs, 4 stone), then a stove.", 8.0)
 		"axe":
 			player.tools["axe"] = true
 			hud.show_message("Stone axe made. Hold E at a tree to chop it for logs.", 5.0)
@@ -546,8 +645,9 @@ func under_tree(pos: Vector2) -> bool:
 # ---------- Sleep ----------
 
 func try_sleep() -> void:
-	if get_igloo_at(player.position) == null:
-		hud.show_message("You can only sleep inside a finished igloo.")
+	var shelter = get_shelter_at(player.position)
+	if shelter == null or not shelter.storm_proof():
+		hud.show_message("You can only sleep inside a finished igloo or cabin.")
 		return
 	if not (time_of_day >= 0.62 or time_of_day < DAWN_START):
 		hud.show_message("It's too early to sleep. Use the daylight!")
@@ -557,7 +657,8 @@ func try_sleep() -> void:
 
 
 func _finish_sleep() -> void:
-	var had_fire := get_fire_heat(player.position) > 0.0
+	var shelter = get_shelter_at(player.position)
+	var had_fire := get_fire_heat(player.position) > 0.0 or (shelter != null and shelter.heat() > 0.0)
 	var t := time_of_day
 	var skipped := (MORNING - t) if t < MORNING else (1.0 - t + MORNING)
 	if t >= MORNING:
@@ -565,6 +666,8 @@ func _finish_sleep() -> void:
 	time_of_day = MORNING
 	for f in get_tree().get_nodes_in_group("fire"):
 		f.burn(skipped * DAY_LENGTH * 0.5)
+	for c in get_tree().get_nodes_in_group("cabin"):
+		c.stove_fuel = maxf(c.stove_fuel - skipped * DAY_LENGTH * 0.5, 0.0)
 	for w in get_tree().get_nodes_in_group("wolf"):
 		w.queue_free()
 	if weather.is_storm():

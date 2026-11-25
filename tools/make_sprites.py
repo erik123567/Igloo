@@ -331,4 +331,84 @@ sdr.ellipse([1, 0, 12, 5], fill=(196, 160, 110, 255))
 sdr.ellipse([4, 1, 9, 4], fill=(170, 130, 84, 255))
 save(outline(stump), "stump")
 
+# ---------------- Polar bear ----------------
+PAL.update({"O": (236, 232, 214, 255), "o": (204, 198, 176, 255), "Q": (40, 36, 34, 255)})
+bear_body = [
+    "......................KK.....",
+    ".....................KoOK....",
+    "..........KKKKKKKKKKKOOOOK...",
+    "......KKKKOOOOOOOOOOOOOOOOK..",
+    ".....KOOOOOOOOOOOOOOOOOOQOOK.",
+    "....KOOOOOOOOOOOOOOOOOOOOOOOK",
+    "...KOOOOOOOOOOOOOOOOOOOOOOQQK",
+    "..KoOOOOOOOOOOOOOOOOOOOOOOKK.",
+    "..KoOOOOOOOOOOOOOOOOOOOOK....",
+    "..KooOOOOOOOOOOOOOOOOOOoK....",
+    "...KooooOOOOOOOOOOOooooK.....",
+]
+bear_legs = [
+    ["...KooK.KooK......KooK.KooK..", "...KooK.KooK......KooK.KooK..", "...KQQK.KQQK......KQQK.KQQK..", "...KKKK.KKKK......KKKK.KKKK.."],
+    ["..KooK...KooK....KooK...KooK.", ".KooK.....KooK..KooK.....KooK", ".KQQK.....KQQK..KQQK.....KQQK", ".KKKK.....KKKK..KKKK.....KKKK"],
+]
+for i, lg in enumerate(bear_legs):
+    save(from_rows(bear_body + lg), f"bear_{i}")
+
+
+# ---------------- Cabin stages ----------------
+def log_rows(img, x0, y0, x1, y1, horizontal=True):
+    d = ImageDraw.Draw(img)
+    light, mid, dark = (150, 104, 62, 255), (122, 82, 46, 255), (88, 58, 32, 255)
+    y = y0
+    while y + 5 <= y1:
+        d.rectangle([x0, y, x1, y + 4], fill=mid)
+        d.line([(x0, y), (x1, y)], fill=light)
+        d.line([(x0, y + 4), (x1, y + 4)], fill=dark)
+        for x in range(x0 + 7, x1, 13):
+            img.putpixel((x, y + 2), dark)
+        d.ellipse([x0 - 2, y, x0 + 2, y + 4], fill=(196, 160, 110, 255))
+        d.ellipse([x1 - 2, y, x1 + 2, y + 4], fill=(196, 160, 110, 255))
+        y += 5
+
+
+W, H = 100, 84
+floor = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+fd = ImageDraw.Draw(floor)
+fd.rectangle([4, 40, 95, 79], fill=(132, 92, 54, 255))
+for x in range(4, 96, 7):
+    fd.line([(x, 40), (x, 79)], fill=(104, 70, 40, 255))
+fd.rectangle([4, 40, 95, 79], outline=K)
+save(floor, "cabin_floor")
+
+walls = floor.copy()
+log_rows(walls, 4, 30, 95, 44)          # back wall
+for x0 in (4, 91):                       # side walls
+    ImageDraw.Draw(walls).rectangle([x0, 30, x0 + 4, 79], fill=(122, 82, 46, 255), outline=(88, 58, 32, 255))
+log_rows(walls, 4, 65, 40, 80)           # front wall left of door
+log_rows(walls, 60, 65, 95, 80)          # front wall right of door
+save(outline(walls), "cabin_walls")
+
+full = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+log_rows(full, 4, 44, 95, 80)
+fdr = ImageDraw.Draw(full)
+fdr.polygon([(0, 46), (50, 6), (99, 46)], fill=(96, 62, 36, 255))
+for i in range(0, 40, 4):
+    fdr.line([(50 - i * 1.25, 6 + i), (50 + i * 1.25, 6 + i)], fill=(110, 72, 42, 255))
+fdr.polygon([(0, 46), (50, 6), (99, 46), (99, 42), (50, 10), (0, 42)], fill=(242, 246, 252, 255))
+fdr.polygon([(10, 38), (50, 6), (90, 38), (82, 38), (50, 13), (18, 38)], fill=(242, 246, 252, 255))
+fdr.rectangle([42, 56, 58, 80], fill=(70, 44, 24, 255))
+fdr.rectangle([43, 57, 57, 79], fill=(96, 62, 34, 255))
+full.putpixel((55, 68), (230, 200, 90, 255))
+fdr.rectangle([14, 54, 28, 64], fill=(60, 74, 100, 255))
+fdr.rectangle([72, 54, 86, 64], fill=(60, 74, 100, 255))
+save(outline(full), "cabin_roof")
+lit = full.copy()
+ld = ImageDraw.Draw(lit)
+ld.rectangle([14, 54, 28, 64], fill=(255, 196, 90, 255))
+ld.rectangle([72, 54, 86, 64], fill=(255, 196, 90, 255))
+ld.rectangle([70, 8, 78, 26], fill=(110, 110, 118, 255))
+save(outline(lit), "cabin_lit")
+chim = full.copy()
+ImageDraw.Draw(chim).rectangle([70, 8, 78, 26], fill=(110, 110, 118, 255))
+save(outline(chim), "cabin_stove")
+
 print("sprites written to", os.path.abspath(OUT))

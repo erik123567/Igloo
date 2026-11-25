@@ -150,12 +150,16 @@ func _update_stats(delta: float) -> void:
 	var nf: float = main.get_night_factor()
 	var rate := -lerpf(TEMP_DRAIN_DAY, TEMP_DRAIN_NIGHT, nf)
 	warmth_source = ""
-	var sheltered: bool = main.get_igloo_at(position) != null
-	if sheltered:
-		rate *= IGLOO_INSULATION
-		warmth_source = "igloo"
+	var shelter = main.get_shelter_at(position)
+	var sheltered: bool = shelter != null and shelter.storm_proof()
+	if shelter != null:
+		rate *= shelter.insulation()
+		if not sheltered:
+			rate *= main.weather.cold_multiplier()
+		rate += shelter.heat()
+		warmth_source = shelter.shelter_name()
 	else:
-		rate *= main.weather.cold_multiplier()
+		rate *= main.weather.cold_multiplier() * main.zone_cold(position)
 	if torch_time > 0.0:
 		torch_time = maxf(torch_time - delta * (1.0 + main.weather.blizzard), 0.0)
 		rate += 0.4
@@ -228,7 +232,7 @@ func _handle_actions() -> void:
 	if Input.is_action_just_pressed("sleep"):
 		main.try_sleep()
 	if main.hud.craft_open:
-		for i in range(1, 8):
+		for i in range(1, 9):
 			if Input.is_action_just_pressed("craft_%d" % i):
 				main.try_craft(i)
 				break

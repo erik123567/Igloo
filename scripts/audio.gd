@@ -55,7 +55,7 @@ func _make_loop(stream_name: String) -> AudioStreamPlayer:
 
 
 ## Plays a sound. Pass a world position to make it quieter the further away it is.
-func play(sound: String, pos = null, volume_db: float = 0.0, pitch_var: float = 0.08) -> void:
+func play(sound: String, pos = null, volume_db: float = 0.0, pitch_var: float = 0.08, pitch: float = 1.0) -> void:
 	var vol := volume_db
 	if pos != null and main != null and main.player != null:
 		var d: float = main.player.position.distance_to(pos)
@@ -66,7 +66,7 @@ func play(sound: String, pos = null, volume_db: float = 0.0, pitch_var: float = 
 	_next = (_next + 1) % _pool.size()
 	p.stream = STREAMS[sound]
 	p.volume_db = vol
-	p.pitch_scale = 1.0 + randf_range(-pitch_var, pitch_var)
+	p.pitch_scale = pitch + randf_range(-pitch_var, pitch_var)
 	p.play()
 
 

@@ -97,9 +97,32 @@ func _process(_delta: float) -> bool:
 			for ig in get_nodes_in_group("igloo"):
 				p.position = ig.position
 			p.health = 100.0
+		185:
+			# build the whole cabin and sleep in it instead
+			p.inventory["logs"] = 40
+			p.inventory["stone"] = 20
+			main.hud.set_craft_open(true)
+			main.try_craft(8)
+			var cabin = main.get_home()
+			assert(cabin != null)
+			for i in 40:
+				if cabin.can_interact(p):
+					cabin.interact(p)
+			print("cabin level: ", cabin.level, " stove: ", cabin.stove_fuel)
+			assert(cabin.level == 4)
+			p.position = cabin.center()
+			assert(main.get_shelter_at(p.position) == cabin)
+			# a polar bear next to us outside should hurt
+		190:
+			var bear = get_nodes_in_group("bear")[0]
+			print("bears: ", get_nodes_in_group("bear").size(), " forest wolves: ", get_nodes_in_group("wolf").size())
+			for i in 5:
+				bear.take_hit(p, 2)
+			assert(not is_instance_valid(bear) or bear.is_queued_for_deletion())
 		200:
 			main.try_sleep()
 		500:
+			assert(main.day == 2)
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())
 			return true
 	return false

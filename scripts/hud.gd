@@ -12,7 +12,7 @@ const HELP_TEXT := """CONTROLS  (H to hide)
 Move: WASD or arrow keys
 Sprint: Shift (uses energy)
 Gather / use / chop: E (hold)
-Crafting menu: Tab, then 1-7
+Crafting menu: Tab, then 1-8
 Attack / hunt: Space
 Switch weapon: F
 Light a torch: T
@@ -27,8 +27,10 @@ SURVIVE 3 NIGHTS
   and get inside before it hits.
 - Hail hurts in the open. Trees
   help a little, igloos fully.
-- Axe: chop trees for logs.
-  Spear and bow: hunt and fight."""
+- Axe: chop trees for logs. Haul
+  them home to build your cabin.
+- North is colder: forest wolves,
+  then polar bears on the tundra."""
 
 var main
 var player
@@ -324,7 +326,7 @@ func _process(delta: float) -> void:
 	_bars["Energy"].value = player.energy
 	_bars["Health"].value = player.health
 
-	_clock.text = "Day %d   %s   %s   |   %s" % [main.day, main.clock_text(), main.phase_name(), main.weather.label()]
+	_clock.text = "Day %d   %s   %s   |   %s   |   %s" % [main.day, main.clock_text(), main.phase_name(), main.weather.label(), main.zone_at(player.position)["name"]]
 
 	var parts := []
 	for key in ["sticks", "flint", "stone", "snow_block", "logs", "berries", "raw_meat", "cooked_meat", "arrows", "torch"]:
@@ -372,9 +374,14 @@ func _status_text() -> String:
 	var lines := []
 	if player.warmth_source == "fire":
 		lines.append("Warming by the fire")
-	elif player.warmth_source == "igloo":
-		lines.append("Sheltered in the igloo")
-	if main.weather.is_storm() and main.get_igloo_at(player.position) == null:
+	elif player.warmth_source != "":
+		lines.append("Sheltered in the %s" % player.warmth_source)
+	var home = main.get_home()
+	if home != null and not home.contains(player.position):
+		var to: Vector2 = home.center() - player.position
+		lines.append("Home: %dm %s" % [int(to.length() / 10.0), _compass(to)])
+	var sh = main.get_shelter_at(player.position)
+	if main.weather.is_storm() and (sh == null or not sh.storm_proof()):
 		lines.append("Storm! Get inside an igloo.")
 	if player.temp < 25.0:
 		lines.append("You're freezing! Get to a fire.")
@@ -383,6 +390,14 @@ func _status_text() -> String:
 	if player.energy < 10.0:
 		lines.append("Exhausted. Stand still to rest.")
 	return "\n".join(PackedStringArray(lines))
+
+
+func _compass(v: Vector2) -> String:
+	var names := ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"]
+	var idx := int(round(v.angle() / (TAU / 8.0))) % 8
+	if idx < 0:
+		idx += 8
+	return names[idx]
 
 
 func _craft_text() -> String:

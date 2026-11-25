@@ -17,6 +17,8 @@ var hp := MAX_HP
 var hit_radius := 12.0
 var display_name := "wolf"
 var leaving := false
+var resident := false     # forest pack wolves stay out in the daytime too
+var home := Vector2.ZERO
 var facing := Vector2.RIGHT
 
 var _wander_dir := Vector2.RIGHT
@@ -37,7 +39,8 @@ func _ready() -> void:
 
 
 func leave() -> void:
-	leaving = true
+	if not resident:
+		leaving = true
 
 
 func _process(delta: float) -> void:
@@ -78,7 +81,11 @@ func _process(delta: float) -> void:
 			_wander_timer = randf_range(1.5, 3.5)
 			_wander_dir = Vector2.from_angle(randf() * TAU)
 			# drift toward the player's area over time
-			_wander_dir = (_wander_dir + dir_p * 0.6).normalized()
+			if resident:
+				if position.distance_to(home) > 300.0:
+					_wander_dir = (home - position).normalized()
+			else:
+				_wander_dir = (_wander_dir + dir_p * 0.6).normalized()
 		vel = _wander_dir * PROWL_SPEED
 
 	var new_pos := position + vel * delta

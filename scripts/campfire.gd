@@ -87,7 +87,8 @@ func _process(delta: float) -> void:
 		return
 	if fuel > 0.0:
 		var burn_rate := 1.0
-		if main.get_igloo_at(position) == null:
+		var sh = main.get_shelter_at(position)
+		if sh == null or not sh.storm_proof():
 			burn_rate += main.weather.blizzard  # the wind eats through firewood
 		fuel = maxf(fuel - delta * burn_rate, 0.0)
 		if fuel <= 0.0 and main.player.position.distance_to(position) < 400.0:

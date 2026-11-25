@@ -19,6 +19,34 @@ func _ready() -> void:
 	add_to_group("igloo")
 
 
+func shelter_name() -> String:
+	return "igloo"
+
+
+func is_shelter_ready() -> bool:
+	return is_complete()
+
+
+func storm_proof() -> bool:
+	return is_complete()
+
+
+func insulation() -> float:
+	return 0.3
+
+
+func heat() -> float:
+	return 0.0
+
+
+func blocks(pos: Vector2) -> bool:
+	return is_complete() and pos.distance_to(position) < RADIUS + 22.0
+
+
+func center() -> Vector2:
+	return position
+
+
 func radius() -> float:
 	return RADIUS
 

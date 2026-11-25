@@ -121,13 +121,13 @@ def ground():
                 v += math.sin(2 * math.pi * fx * x / n + px) * math.cos(2 * math.pi * fy * y / n + py)
             v /= len(waves)
             if v > 0.25:
-                c = (246, 249, 253)
+                c = (247, 250, 254)
             elif v > -0.15:
-                c = (236, 241, 248)
+                c = (240, 244, 250)
             elif v > -0.4:
-                c = (224, 232, 244)
+                c = (233, 239, 248)
             else:
-                c = (212, 223, 239)
+                c = (227, 234, 245)
             img.putpixel((x, y), c + (255,))
     for _ in range(40):
         x, y = rnd.randrange(n), rnd.randrange(n)

@@ -41,11 +41,18 @@ func _process(_delta: float) -> bool:
 			for f in get_nodes_in_group("fire"):
 				f.interact(p)
 		25:
-			main.time_of_day = 0.759
+			main.time_of_day = 0.7599
 		40:
-			print("wolves at night: ", get_nodes_in_group("wolf").size())
-			for w in get_nodes_in_group("wolf"):
-				w.take_hit(p)
+			var wolves := get_nodes_in_group("wolf")
+			print("wolves at night: ", wolves.size())
+			assert(wolves.size() > 0)
+			p.position += Vector2(500, 0)
+			wolves[0].position = p.position + Vector2(15, 0)
+		55:
+			print("health after wolf: ", p.health)
+			for i in 3:
+				for w in get_nodes_in_group("wolf"):
+					w.take_hit(p)
 		60:
 			for h in get_nodes_in_group("hare"):
 				h.take_hit(p)
@@ -53,6 +60,9 @@ func _process(_delta: float) -> bool:
 		70:
 			for w in get_nodes_in_group("wolf"):
 				w.position = p.position + Vector2(200, 0)
+		80:
+			for ig in get_nodes_in_group("igloo"):
+				p.position = ig.position
 		90:
 			main.try_sleep()
 		400:

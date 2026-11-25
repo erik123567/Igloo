@@ -39,7 +39,7 @@ func heat() -> float:
 	return 0.0
 
 
-func blocks(pos: Vector2) -> bool:
+func blocks_at(pos: Vector2) -> bool:
 	return is_complete() and pos.distance_to(position) < RADIUS + 22.0
 
 

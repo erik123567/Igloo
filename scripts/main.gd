@@ -522,7 +522,7 @@ func fear_push(pos: Vector2) -> Vector2:
 			return (pos - f.position).normalized()
 	for group in ["igloo", "cabin"]:
 		for sh in get_tree().get_nodes_in_group(group):
-			if sh.blocks(pos):
+			if sh.blocks_at(pos):
 				var away: Vector2 = pos - sh.center()
 				return away.normalized() if away.length() > 0.1 else Vector2.DOWN
 	return Vector2.ZERO
@@ -658,7 +658,7 @@ func try_sleep() -> void:
 
 func _finish_sleep() -> void:
 	var shelter = get_shelter_at(player.position)
-	var had_fire := get_fire_heat(player.position) > 0.0 or (shelter != null and shelter.heat() > 0.0)
+	var had_fire: bool = get_fire_heat(player.position) > 0.0 or (shelter != null and shelter.heat() > 0.0)
 	var t := time_of_day
 	var skipped := (MORNING - t) if t < MORNING else (1.0 - t + MORNING)
 	if t >= MORNING:

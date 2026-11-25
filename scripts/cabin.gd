@@ -83,7 +83,7 @@ func contains(pos: Vector2) -> bool:
 
 
 ## True if animals can't step here (the finished cabin).
-func blocks(pos: Vector2) -> bool:
+func blocks_at(pos: Vector2) -> bool:
 	if level < 3:
 		return false
 	var d := pos - (position + Vector2(0, -20))

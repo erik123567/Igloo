@@ -25,7 +25,7 @@ If you see red error text at the bottom of Godot, copy it and send it to Claude.
 | Tab | Crafting menu (then 1 = campfire, 2 = igloo) |
 | Q | Eat (cooked meat first, then berries, then raw meat) |
 | C | Cook raw meat while standing at a fire |
-| Space | Attack: hunt hares, fight off wolves |
+| Space | Attack: hunt hares (sprint after one until it stops to catch its breath, then hit it), fight off wolves |
 | Z | Sleep (only inside a finished igloo, in the evening or at night) |
 | H | Show or hide the help panel |
 | Esc | Pause |

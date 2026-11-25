@@ -13,6 +13,7 @@ const MAX_HP := 3
 var main
 var hp := MAX_HP
 var hit_radius := 12.0
+var display_name := "wolf"
 var leaving := false
 var facing := Vector2.RIGHT
 

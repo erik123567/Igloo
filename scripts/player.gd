@@ -6,7 +6,7 @@ const WALK_SPEED := 130.0
 const SPRINT_SPEED := 210.0
 const COLD_SLOW := 0.7             # speed multiplier when body temp is low
 const INTERACT_RANGE := 26.0
-const ATTACK_RANGE := 30.0
+const ATTACK_RANGE := 36.0
 
 const TEMP_DRAIN_DAY := 0.45       # body temp lost per second outside in daylight
 const TEMP_DRAIN_NIGHT := 1.3      # ... at night
@@ -37,6 +37,7 @@ var facing := Vector2.DOWN
 var is_moving := false
 var is_sprinting := false
 var target = null           # nearest thing you can use with E
+var prey = null             # nearest animal you could hit with Space
 var warmth_source := ""     # "fire", "igloo" or ""
 var dead := false
 
@@ -86,6 +87,7 @@ func _process(delta: float) -> void:
 	_move(delta)
 	_update_stats(delta)
 	_find_target()
+	prey = _nearest_attackable(ATTACK_RANGE + 30.0)
 	_handle_actions()
 	_light.energy = 0.55 * main.get_night_factor()
 	queue_redraw()
@@ -188,15 +190,23 @@ func _attack() -> void:
 	_attack_cd = 0.45
 	_swing = 0.18
 	energy = maxf(energy - 3.0, 0.0)
+	var best = _nearest_attackable(ATTACK_RANGE)
+	if best != null:
+		facing = (best.position - position).normalized()
+		best.take_hit(self)
+
+
+func _nearest_attackable(reach: float):
 	var best = null
 	var bd := INF
 	for n in get_tree().get_nodes_in_group("attackable"):
+		if n.is_queued_for_deletion():
+			continue
 		var d: float = position.distance_to(n.position)
-		if d < ATTACK_RANGE + n.hit_radius and d < bd:
+		if d < reach + n.hit_radius and d < bd:
 			bd = d
 			best = n
-	if best != null:
-		best.take_hit(self)
+	return best
 
 
 func _eat() -> void:

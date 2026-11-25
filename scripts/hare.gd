@@ -2,11 +2,16 @@ extends Node2D
 ## A snowshoe hare. Wanders by day and bolts when you get close. Sprint to catch it, Space to hunt.
 
 const WANDER_SPEED := 35.0
-const FLEE_SPEED := 165.0
+const FLEE_SPEED := 150.0    # sprinting is 210, so you can run it down
+const FLEE_STAMINA := 2.0    # seconds it can bolt before stopping to rest
+const REST_TIME := 1.2
 const SCARE_RANGE := 130.0
 
 var main
 var hit_radius := 8.0
+var display_name := "hare"
+var _flee_left := FLEE_STAMINA
+var _rest := 0.0
 var facing := Vector2.RIGHT
 var _dir := Vector2.RIGHT
 var _timer := 0.0
@@ -24,9 +29,17 @@ func _process(delta: float) -> void:
 		return
 	var to_p: Vector2 = main.player.position - position
 	var vel := Vector2.ZERO
-	if to_p.length() < SCARE_RANGE:
+	_rest = maxf(_rest - delta, 0.0)
+	if _rest > 0.0:
+		vel = Vector2.ZERO  # out of breath: your chance to strike
+	elif to_p.length() < SCARE_RANGE:
 		vel = -to_p.normalized() * FLEE_SPEED
+		_flee_left -= delta
+		if _flee_left <= 0.0:
+			_rest = REST_TIME
+			_flee_left = FLEE_STAMINA
 	else:
+		_flee_left = minf(_flee_left + delta * 0.5, FLEE_STAMINA)
 		_timer -= delta
 		if _timer <= 0.0:
 			_timer = randf_range(0.8, 2.5)

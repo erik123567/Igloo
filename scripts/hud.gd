@@ -15,6 +15,8 @@ Crafting menu: Tab
 Eat: Q
 Cook meat at a fire: C
 Attack / hunt: Space
+  (sprint after a hare until it stops
+   to rest, then hit it for meat)
 Sleep in a finished igloo: Z
 Pause: Esc
 
@@ -281,7 +283,15 @@ func _process(delta: float) -> void:
 	_inv.text = "   ".join(PackedStringArray(parts))
 
 	var t = player.target
-	_prompt.text = t.get_prompt(player) if (t != null and is_instance_valid(t) and not main.game_over) else ""
+	var prey = player.prey
+	if main.game_over:
+		_prompt.text = ""
+	elif prey != null and is_instance_valid(prey):
+		_prompt.text = "[Space] Hit the %s" % prey.display_name
+	elif t != null and is_instance_valid(t):
+		_prompt.text = t.get_prompt(player)
+	else:
+		_prompt.text = ""
 
 	_status.text = _status_text()
 

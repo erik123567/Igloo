@@ -73,11 +73,13 @@ func _process(_delta: float) -> bool:
 			print("health after wolf: ", p.health)
 			p.weapon = "bow"
 			var w0 = get_nodes_in_group("wolf")[0]
-			p.facing = (w0.position - p.position).normalized()
+			w0.position = p.position + Vector2(70, 0)
+			p.facing = Vector2.RIGHT
 			p._attack()
-		58:
+		66:
 			var w0 = get_nodes_in_group("wolf")[0]
 			print("wolf hp after arrow: ", w0.hp)
+			assert(w0.hp < 3)
 			for i in 3:
 				for w in get_nodes_in_group("wolf"):
 					w.take_hit(p, 2)

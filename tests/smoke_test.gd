@@ -146,7 +146,12 @@ func _process(_delta: float) -> bool:
 			assert(int(data["day"]) == 2)
 			p.inventory["logs"] = 0
 			main.load_game(data)
-			print("after load: logs ", p.inventory["logs"], " cabin level ", main.get_home().level, " chopped trees saved: ", data["map"].count(-2))
+			var gone := 0
+			for v in data["map"]:
+				if int(v) == -2:
+					gone += 1
+			print("after load: logs ", p.inventory["logs"], " cabin level ", main.get_home().level, " map things used up: ", gone)
+			assert(gone > 0)
 			assert(p.inventory["logs"] > 0)
 		460:
 			p.take_damage(999.0, "a test")

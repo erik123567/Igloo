@@ -11,6 +11,8 @@ const IglooScript = preload("res://scripts/igloo.gd")
 const WolfScript = preload("res://scripts/wolf.gd")
 const HareScript = preload("res://scripts/hare.gd")
 const GroundScript = preload("res://scripts/ground.gd")
+const AudioScript = preload("res://scripts/audio.gd")
+const FxScript = preload("res://scripts/fx.gd")
 
 # ---------- Tuning (change these numbers to balance the game) ----------
 const DAY_LENGTH := 360.0      # real seconds for one full day + night
@@ -35,6 +37,10 @@ var won := false
 var sleeping := false
 
 var world: Node2D
+var fx
+var audio
+var cam: Camera2D
+var _shake := 0.0
 var player
 var hud
 var canvas_mod: CanvasModulate
@@ -49,6 +55,9 @@ func _ready() -> void:
 	ground.world_size = world_size
 	ground.shore_y = shore_y
 	add_child(ground)
+
+	fx = FxScript.new()
+	add_child(fx)
 
 	canvas_mod = CanvasModulate.new()
 	add_child(canvas_mod)
@@ -66,7 +75,7 @@ func _ready() -> void:
 	player.position = spawn_point
 	world.add_child(player)
 
-	var cam := Camera2D.new()
+	cam = Camera2D.new()
 	cam.zoom = Vector2(2, 2)
 	cam.limit_left = 0
 	cam.limit_top = 0
@@ -76,6 +85,10 @@ func _ready() -> void:
 	cam.position_smoothing_speed = 6.0
 	player.add_child(cam)
 	cam.make_current()
+
+	audio = AudioScript.new()
+	audio.main = self
+	add_child(audio)
 
 	hud = HudScript.new()
 	hud.main = self
@@ -152,7 +165,7 @@ func _build_map() -> void:
 	for t in trees:
 		var tree = PineScript.new()
 		tree.position = t
-		tree.size = rng.randf_range(0.8, 1.4)
+		tree.size = 2.0 if rng.randf() < 0.25 else 1.0
 		world.add_child(tree)
 
 	# Sticks: mostly under trees, a few close to where you wake up
@@ -203,6 +216,8 @@ func spawn_meat(pos: Vector2, amount: int) -> void:
 # ---------- Day / night ----------
 
 func _process(delta: float) -> void:
+	_shake = maxf(_shake - delta * 30.0, 0.0)
+	cam.offset = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
 	if game_over or sleeping:
 		return
 	var prev := time_of_day
@@ -280,6 +295,7 @@ func _on_nightfall() -> void:
 		w.position = p
 		world.add_child(w)
 	hud.show_message("Night falls. Wolves howl in the distance...", 5.0)
+	audio.play("howl", null, -3.0, 0.05)
 
 
 func _on_morning() -> void:
@@ -295,6 +311,7 @@ func _on_morning() -> void:
 		return
 	if day > 1:
 		hud.show_message("Day %d. You made it through the night!" % day, 5.0)
+		audio.play("chime", null, -6.0, 0.0)
 
 
 func _spawn_hares() -> void:
@@ -304,6 +321,38 @@ func _spawn_hares() -> void:
 		h.main = self
 		h.position = _away_from_spawn(150, 450, world_size.x - 150, shore_y - 80, 250)
 		world.add_child(h)
+
+
+# ---------- Effects ----------
+
+func shake(amount: float) -> void:
+	_shake = maxf(_shake, amount)
+
+
+## A little burst of particles (snow, sparks, fur) at a world position.
+func puff(pos: Vector2, color: Color, amount: int = 10, speed: float = 50.0) -> void:
+	var p := CPUParticles2D.new()
+	p.position = pos
+	p.z_index = 20
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.amount = amount
+	p.lifetime = 0.6
+	p.direction = Vector2(0, -1)
+	p.spread = 180.0
+	p.gravity = Vector2(0, 120)
+	p.initial_velocity_min = speed * 0.4
+	p.initial_velocity_max = speed
+	p.scale_amount_min = 1.0
+	p.scale_amount_max = 2.0
+	p.color = color
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(1.5).timeout.connect(p.queue_free)
+
+
+func add_footprint(pos: Vector2, is_paw: bool = false) -> void:
+	fx.add_print(pos, is_paw)
 
 
 # ---------- Queries used by player and wolves ----------
@@ -388,6 +437,8 @@ func try_craft(which: int) -> void:
 		fire.main = self
 		fire.position = place
 		world.add_child(fire)
+		audio.play("ignite", place)
+		puff(place, Color(1.0, 0.7, 0.3), 14)
 		hud.show_message("You strike flint against stone... the tinder catches!\nFeed the fire with sticks (E) or it will burn out.", 6.0)
 	elif which == 2:
 		var site: Vector2 = player.position + player.facing * 50.0

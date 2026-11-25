@@ -21,6 +21,12 @@ const FREEZE_DAMAGE := 2.5         # health per second when body temp is 0
 const STARVE_DAMAGE := 1.2         # health per second when hunger is 0
 const HEAL_RATE := 0.6             # health per second when warm and fed
 
+const TEX := {
+	"down": [preload("res://art/player_down_0.png"), preload("res://art/player_down_1.png"), preload("res://art/player_down_2.png")],
+	"up": [preload("res://art/player_up_0.png"), preload("res://art/player_up_1.png"), preload("res://art/player_up_2.png")],
+	"side": [preload("res://art/player_side_0.png"), preload("res://art/player_side_1.png")],
+}
+
 var main
 
 var temp := 85.0      # body temperature, 0 = freezing
@@ -47,6 +53,9 @@ var _swing := 0.0
 var _hurt := 0.0
 var _walk := 0.0
 var _light: PointLight2D
+var _step_dist := 0.0
+var _step_left := false
+var _breath := 0.0
 
 
 func _ready() -> void:
@@ -90,6 +99,12 @@ func _process(delta: float) -> void:
 	prey = _nearest_attackable(ATTACK_RANGE + 30.0)
 	_handle_actions()
 	_light.energy = 0.55 * main.get_night_factor()
+	# frosty breath when it's cold
+	_breath -= delta
+	if _breath <= 0.0:
+		_breath = 1.4
+		if temp < 50.0 or main.get_night_factor() > 0.5:
+			main.puff(position + Vector2(0, -9) + facing * 6.0, Color(1, 1, 1, 0.6), 4, 14.0)
 	queue_redraw()
 
 
@@ -107,7 +122,14 @@ func _move(delta: float) -> void:
 		position += dir * speed * delta
 		position.x = clampf(position.x, 16.0, main.world_size.x - 16.0)
 		position.y = clampf(position.y, 16.0, main.shore_y + 60.0)
-		_walk += delta * speed * 0.08
+		_walk += delta * speed * 0.055
+		_step_dist += speed * delta
+		if _step_dist > 20.0:
+			_step_dist = 0.0
+			_step_left = not _step_left
+			var side := facing.orthogonal() * (3.0 if _step_left else -3.0)
+			main.add_footprint(position + Vector2(0, 3) + side)
+			main.audio.play("step_%d" % (randi() % 3), null, -10.0 if not is_sprinting else -7.0, 0.12)
 
 
 func _update_stats(delta: float) -> void:
@@ -189,6 +211,7 @@ func _use_target() -> void:
 func _attack() -> void:
 	_attack_cd = 0.45
 	_swing = 0.18
+	main.audio.play("swing", null, -4.0)
 	energy = maxf(energy - 3.0, 0.0)
 	var best = _nearest_attackable(ATTACK_RANGE)
 	if best != null:
@@ -216,13 +239,16 @@ func _eat() -> void:
 		temp = minf(temp + 6.0, 100.0)
 		energy = minf(energy + 10.0, 100.0)
 		say("You eat cooked meat. Warm and filling.")
+		main.audio.play("eat")
 	elif inventory["berries"] > 0:
 		inventory["berries"] -= 1
 		hunger = minf(hunger + 7.0, 100.0)
 		say("You eat a handful of berries.")
+		main.audio.play("eat")
 	elif inventory["raw_meat"] > 0:
 		inventory["raw_meat"] -= 1
 		hunger = minf(hunger + 15.0, 100.0)
+		main.audio.play("eat")
 		take_damage(6.0, "food poisoning")
 		say("You eat raw meat... your stomach churns. Cook it next time (C at a fire).")
 	else:
@@ -239,6 +265,7 @@ func _cook() -> void:
 	inventory["raw_meat"] -= 1
 	inventory["cooked_meat"] += 1
 	main.hud.show_toast("Cooked 1 meat")
+	main.audio.play("ignite", null, -8.0)
 
 
 # ---------- Called by other scripts ----------
@@ -246,6 +273,7 @@ func _cook() -> void:
 func add_item(item: String, n: int) -> void:
 	inventory[item] += n
 	main.hud.show_toast("+%d %s" % [n, main.hud.item_name(item)])
+	main.audio.play("pickup", null, -6.0, 0.05)
 
 
 func spend_energy(amount: float) -> bool:
@@ -266,6 +294,9 @@ func take_damage(amount: float, cause: String, flash: bool = true) -> void:
 	health -= amount
 	if flash:
 		_hurt = 0.3
+		main.audio.play("hurt", null, -2.0)
+		main.shake(5.0)
+		main.hud.flash_damage()
 	if health <= 0.0:
 		health = 0.0
 		dead = true
@@ -288,32 +319,36 @@ func apply_sleep(had_fire: bool) -> String:
 	return "You woke up shivering. A fire inside the igloo would help."
 
 
-# ---------- Drawing (placeholder art) ----------
+# ---------- Drawing ----------
 
 func _draw() -> void:
-	draw_set_transform(Vector2(0, 11), 0, Vector2(1, 0.35))
-	draw_circle(Vector2.ZERO, 11, Color(0, 0, 0, 0.25))
+	draw_set_transform(Vector2(0, 3), 0, Vector2(1, 0.35))
+	draw_circle(Vector2.ZERO, 8, Color(0, 0, 0, 0.22))
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-	if dead:
-		draw_circle(Vector2(0, 4), 10, Color(0.5, 0.25, 0.2))
-		return
-	var bob := sin(_walk) * 1.8 if is_moving else 0.0
-	var parka := Color(0.85, 0.3, 0.2)
+	var tint := Color(1, 1, 1)
 	if _hurt > 0.0:
-		parka = Color(1, 0.7, 0.7)
-	# boots
-	draw_circle(Vector2(-4, 9 + bob), 3.5, Color(0.25, 0.18, 0.12))
-	draw_circle(Vector2(4, 9 - bob), 3.5, Color(0.25, 0.18, 0.12))
-	# parka
-	draw_circle(Vector2(0, 2), 9, parka)
-	# mittens
-	draw_circle(Vector2(-9, 3 - bob * 0.5), 3, Color(0.3, 0.3, 0.55))
-	draw_circle(Vector2(9, 3 + bob * 0.5), 3, Color(0.3, 0.3, 0.55))
-	# fur hood and face
-	draw_circle(Vector2(0, -8), 7.5, Color(0.55, 0.4, 0.28))
-	if facing.y > -0.5:
-		draw_circle(Vector2(0, -8) + facing * 2.5, 4.5, Color(0.95, 0.8, 0.65))
-	# attack swing
+		tint = Color(1, 0.45, 0.45)
+	if dead:
+		draw_set_transform(Vector2(0, -2), PI / 2, Vector2.ONE)
+		draw_texture(TEX["down"][0], Vector2(-8, -9), Color(0.8, 0.8, 0.9))
+		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+		return
+	var view := "down"
+	var flip := 1.0
+	if absf(facing.x) > absf(facing.y):
+		view = "side"
+		flip = -1.0 if facing.x < 0.0 else 1.0
+	elif facing.y < 0.0:
+		view = "up"
+	var frame := 0
+	if is_moving:
+		if view == "side":
+			frame = [1, 0][int(_walk) % 2]
+		else:
+			frame = [1, 0, 2, 0][int(_walk) % 4]
+	draw_set_transform(Vector2.ZERO, 0, Vector2(flip, 1))
+	draw_texture(TEX[view][frame], Vector2(-8, -15), tint)
+	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	if _swing > 0.0:
 		var a := facing.angle()
-		draw_arc(facing * 12.0, 13, a - 1.0, a + 1.0, 10, Color(1, 1, 1, 0.9), 2.5)
+		draw_arc(facing * 10.0 + Vector2(0, -5), 12, a - 1.0, a + 1.0, 10, Color(1, 1, 1, 0.9), 2.0)

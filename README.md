@@ -53,4 +53,4 @@ All the numbers that control difficulty are at the top of the script files in `s
 - `scripts/hud.gd`: everything on screen.
 - `scripts/campfire.gd`, `igloo.gd`, `resource_node.gd`, `wolf.gd`, `hare.gd`, `pine_tree.gd`, `ground.gd`: the things in the world.
 
-All art is simple placeholder shapes drawn by the code, so there are no image files yet.
+Art and sound are original pixel art and synthesized effects, see ASSETS.md.

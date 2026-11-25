@@ -7,6 +7,8 @@ const FLEE_STAMINA := 2.0    # seconds it can bolt before stopping to rest
 const REST_TIME := 1.2
 const SCARE_RANGE := 130.0
 
+const TEX := [preload("res://art/hare_0.png"), preload("res://art/hare_1.png")]
+
 var main
 var hit_radius := 8.0
 var display_name := "hare"
@@ -57,23 +59,20 @@ func _process(delta: float) -> void:
 
 
 func take_hit(_player) -> void:
+	main.audio.play("squeak", position)
+	main.audio.play("hit", position, -4.0)
+	main.puff(position, Color(0.8, 0.74, 0.66), 10, 60.0)
 	main.spawn_meat(position, 1)
 	main.hud.show_toast("Caught a hare! Pick up the meat (E).")
 	queue_free()
 
 
 func _draw() -> void:
-	var hop := absf(sin(_anim)) * 3.0 if _moving else 0.0
-	draw_set_transform(Vector2(0, 5), 0, Vector2(1, 0.35))
-	draw_circle(Vector2.ZERO, 7, Color(0, 0, 0, 0.2))
+	draw_set_transform(Vector2(0, 2), 0, Vector2(1, 0.35))
+	draw_circle(Vector2.ZERO, 6, Color(0, 0, 0, 0.2))
 	var flip := -1.0 if facing.x < 0.0 else 1.0
-	var fur := Color(0.78, 0.72, 0.64)
-	draw_set_transform(Vector2(0, -hop), 0, Vector2(flip, 0.75))
-	draw_circle(Vector2.ZERO, 6.5, fur)
-	draw_set_transform(Vector2(0, -hop), 0, Vector2(flip, 1))
-	draw_circle(Vector2(5, -4), 3.8, fur)
-	draw_line(Vector2(4, -7), Vector2(2, -14), fur.darkened(0.15), 2.2)
-	draw_line(Vector2(6, -7), Vector2(6, -14), fur.darkened(0.15), 2.2)
-	draw_circle(Vector2(-6, -1), 2.2, Color(0.97, 0.97, 1))
-	draw_circle(Vector2(6.5, -4.5), 0.9, Color(0.1, 0.1, 0.1))
+	var hop := -2.0 if (_moving and int(_anim) % 2 == 1) else 0.0
+	draw_set_transform(Vector2(0, hop), 0, Vector2(flip, 1))
+	var frame := (int(_anim) % 2) if _moving else 0
+	draw_texture(TEX[frame], Vector2(-6, -10))
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)

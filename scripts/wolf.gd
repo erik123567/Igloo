@@ -10,6 +10,8 @@ const BITE_DAMAGE := 12.0
 const BITE_COOLDOWN := 1.5
 const MAX_HP := 3
 
+const TEX := [preload("res://art/wolf_0.png"), preload("res://art/wolf_1.png")]
+
 var main
 var hp := MAX_HP
 var hit_radius := 12.0
@@ -24,9 +26,12 @@ var _back_off := 0.0
 var _hurt := 0.0
 var _anim := 0.0
 var _moving := false
+var _print_dist := 0.0
+var _howl_timer := 0.0
 
 
 func _ready() -> void:
+	_howl_timer = randf_range(8.0, 25.0)
 	add_to_group("wolf")
 	add_to_group("attackable")
 
@@ -57,6 +62,7 @@ func _process(delta: float) -> void:
 	elif dist < SENSE_RANGE and not player.dead and not main.is_safe_spot(player.position):
 		vel = dir_p * CHASE_SPEED
 		if dist < 22.0 and _bite_cd <= 0.0:
+			main.audio.play("bite", position)
 			player.take_damage(BITE_DAMAGE, "a wolf attack")
 			main.hud.show_toast("A wolf bites you!")
 			_bite_cd = BITE_COOLDOWN
@@ -81,7 +87,17 @@ func _process(delta: float) -> void:
 		new_pos = position + push * PROWL_SPEED * delta
 	new_pos.x = clampf(new_pos.x, 10.0, main.world_size.x - 10.0)
 	new_pos.y = clampf(new_pos.y, 10.0, main.shore_y + 50.0)
-	_moving = new_pos.distance_to(position) > 0.1
+	var moved := new_pos.distance_to(position)
+	_moving = moved > 0.1
+	_print_dist += moved
+	if _print_dist > 16.0:
+		_print_dist = 0.0
+		main.add_footprint(new_pos + Vector2(randf_range(-3, 3), 4), true)
+	_howl_timer -= delta
+	if _howl_timer <= 0.0:
+		_howl_timer = randf_range(20.0, 40.0)
+		if dist > 250.0 and not leaving:
+			main.audio.play("howl", position, -6.0, 0.1)
 	if _moving:
 		facing = (new_pos - position).normalized()
 		_anim += delta * 12.0
@@ -94,6 +110,9 @@ func take_hit(player) -> void:
 	_hurt = 0.2
 	_back_off = 2.0
 	position += (position - player.position).normalized() * 18.0
+	main.audio.play("hit", position)
+	main.puff(position + Vector2(0, -6), Color(0.6, 0.62, 0.7), 8, 60.0)
+	main.shake(2.5)
 	if hp <= 0:
 		main.spawn_meat(position, 2)
 		main.hud.show_message("You killed the wolf. It left meat behind.", 3.0)
@@ -103,29 +122,11 @@ func take_hit(player) -> void:
 
 
 func _draw() -> void:
-	draw_set_transform(Vector2(0, 7), 0, Vector2(1, 0.35))
-	draw_circle(Vector2.ZERO, 15, Color(0, 0, 0, 0.22))
+	draw_set_transform(Vector2(0, 2), 0, Vector2(1, 0.35))
+	draw_circle(Vector2.ZERO, 12, Color(0, 0, 0, 0.22))
 	var flip := -1.0 if facing.x < 0.0 else 1.0
 	draw_set_transform(Vector2.ZERO, 0, Vector2(flip, 1))
-	var fur := Color(0.42, 0.43, 0.48)
-	if _hurt > 0.0:
-		fur = Color(0.9, 0.5, 0.5)
-	var leg := sin(_anim) * 3.0 if _moving else 0.0
-	# legs
-	for x in [-9.0, -5.0, 6.0, 10.0]:
-		var off: float = leg if (x < 0.0) else -leg
-		draw_line(Vector2(x, 2), Vector2(x + off, 9), fur.darkened(0.3), 2.5)
-	# tail
-	draw_line(Vector2(-13, -1), Vector2(-20, -5), fur, 3.0)
-	# body
-	draw_set_transform(Vector2(0, 0), 0, Vector2(flip, 0.55))
-	draw_circle(Vector2.ZERO, 13, fur)
-	draw_set_transform(Vector2.ZERO, 0, Vector2(flip, 1))
-	# head
-	draw_circle(Vector2(12, -5), 6, fur.lightened(0.05))
-	draw_colored_polygon(PackedVector2Array([Vector2(15, -5), Vector2(21, -2), Vector2(15, -1)]), fur.lightened(0.1))
-	draw_colored_polygon(PackedVector2Array([Vector2(8, -9), Vector2(10, -15), Vector2(12, -9)]), fur.darkened(0.2))
-	draw_colored_polygon(PackedVector2Array([Vector2(12, -9), Vector2(14, -15), Vector2(16, -9)]), fur.darkened(0.2))
-	# glowing eyes
-	draw_circle(Vector2(14.5, -6.5), 1.4, Color(1, 0.9, 0.2))
+	var tint := Color(1, 0.5, 0.5) if _hurt > 0.0 else Color(1, 1, 1)
+	var frame := (int(_anim) % 2) if _moving else 0
+	draw_texture(TEX[frame], Vector2(-13, -11), tint)
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)

@@ -5,6 +5,9 @@ extends Node2D
 const BLOCKS_NEEDED := 10
 const RADIUS := 34.0
 
+const TEX_DONE := preload("res://art/igloo.png")
+const TEX_BLOCK := preload("res://art/snow_block.png")
+
 var main
 var blocks := 0
 var interact_radius := 20.0
@@ -48,7 +51,10 @@ func interact(player) -> void:
 	player.inventory["snow_block"] -= 1
 	blocks += 1
 	_pop = 0.25
+	main.audio.play("place_block", position)
+	main.puff(position + Vector2(0, -6), Color(1, 1, 1), 8, 50.0)
 	if is_complete():
+		main.audio.play("chime", null, -4.0, 0.0)
 		remove_from_group("interactable")
 		main.hud.show_message("Igloo finished! Inside, you're out of the wind and safe from wolves.\nLight a fire inside, then sleep (Z) when night comes.", 7.0)
 
@@ -61,36 +67,32 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	var snow := Color(0.95, 0.97, 1.0)
-	var edge := Color(0.62, 0.74, 0.9)
 	if is_complete():
-		draw_set_transform(Vector2(0, -4), 0, Vector2(1, 0.8))
-		draw_circle(Vector2.ZERO, RADIUS + 8.0, Color(0, 0, 0, 0.12))
-		draw_circle(Vector2(0, -4), RADIUS + 4.0, snow)
-		for r in [14.0, 26.0, 36.0]:
-			draw_arc(Vector2(0, -4), r, PI, TAU, 24, edge, 1.2)
+		draw_set_transform(Vector2(0, 4), 0, Vector2(1, 0.3))
+		draw_circle(Vector2.ZERO, RADIUS + 8.0, Color(0, 0, 0, 0.14))
 		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-		for i in 5:
-			var x := -24.0 + i * 12.0
-			draw_line(Vector2(x, -20), Vector2(x + 4, -6), edge, 1.0)
-		draw_rect(Rect2(-9, 14, 18, 14), snow)
-		draw_circle(Vector2(0, 22), 7.5, Color(0.2, 0.24, 0.35))
-		draw_rect(Rect2(-7.5, 22, 15, 6), Color(0.2, 0.24, 0.35))
+		draw_texture(TEX_DONE, Vector2(-41, -54))
 		return
 	# foundation ring
-	draw_set_transform(Vector2(0, -4), 0, Vector2(1, 0.8))
+	var edge := Color(0.55, 0.66, 0.84, 0.8)
+	draw_set_transform(Vector2(0, -4), 0, Vector2(1, 0.55))
 	for i in 24:
 		var a := TAU * i / 24.0
-		draw_arc(Vector2.ZERO, RADIUS, a, a + TAU / 48.0, 3, edge, 1.5)
+		draw_arc(Vector2.ZERO, RADIUS, a, a + TAU / 48.0, 3, edge, 2.0)
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-	# placed blocks, leaving a gap at the bottom for the door
+	# placed blocks around the ring, back ones first, with a gap at the front for the door
 	var start := PI * 0.5 + 0.55
 	var span := TAU - 1.1
+	var order := []
 	for i in blocks:
 		var a := start + span * (i + 0.5) / BLOCKS_NEEDED
-		var p := Vector2(cos(a) * RADIUS, sin(a) * RADIUS * 0.8 - 4.0)
+		order.append([sin(a), a, i])
+	order.sort_custom(func(x, y): return x[0] < y[0])
+	for entry in order:
+		var a: float = entry[1]
+		var i: int = entry[2]
+		var p := Vector2(cos(a) * RADIUS, sin(a) * RADIUS * 0.55 - 4.0)
 		var grow := 1.0 + (_pop * 1.2 if i == blocks - 1 else 0.0)
-		draw_set_transform(p, a, Vector2(grow, grow))
-		draw_rect(Rect2(-5, -9, 10, 18), snow)
-		draw_rect(Rect2(-5, -9, 10, 18), edge, false, 1.0)
+		draw_set_transform(p, 0, Vector2(grow, grow))
+		draw_texture(TEX_BLOCK, Vector2(-6, -14))
 		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)

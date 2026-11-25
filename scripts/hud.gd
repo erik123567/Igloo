@@ -49,6 +49,9 @@ var _end_box: CenterContainer
 var _end_title: Label
 var _end_text: Label
 var _pause_box: CenterContainer
+var _frost: TextureRect
+var _hurt_vignette: TextureRect
+var _hurt_time := 0.0
 
 
 func _ready() -> void:
@@ -125,6 +128,12 @@ func _ready() -> void:
 	_craft.visible = false
 	craft_center.add_child(_craft)
 
+	# Edge vignettes: frost when freezing, red when hurt
+	_frost = _vignette(Color(0.7, 0.85, 1.0, 0.85))
+	root.add_child(_frost)
+	_hurt_vignette = _vignette(Color(0.8, 0.05, 0.05, 0.7))
+	root.add_child(_hurt_vignette)
+
 	# Sleep fade
 	_fade = ColorRect.new()
 	_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -163,6 +172,25 @@ func _ready() -> void:
 
 
 # ---------- Builders ----------
+
+func _vignette(edge: Color) -> TextureRect:
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	g.colors = PackedColorArray([Color(edge, 0.0), Color(edge, 0.0), edge])
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	var r := TextureRect.new()
+	r.texture = tex
+	r.set_anchors_preset(Control.PRESET_FULL_RECT)
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.stretch_mode = TextureRect.STRETCH_SCALE
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r.modulate.a = 0.0
+	return r
+
 
 func _panel_style() -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
@@ -230,6 +258,10 @@ func item_name(item: String) -> String:
 func show_message(text: String, duration: float = 4.0) -> void:
 	_message.text = text
 	_message_time = duration
+
+
+func flash_damage() -> void:
+	_hurt_time = 0.5
 
 
 func show_toast(text: String) -> void:
@@ -302,6 +334,11 @@ func _process(delta: float) -> void:
 
 	if craft_open:
 		_craft_label.text = _craft_text()
+
+	_frost.modulate.a = clampf((40.0 - player.temp) / 40.0, 0.0, 1.0)
+	_hurt_time = maxf(_hurt_time - delta, 0.0)
+	var low_health := clampf((30.0 - player.health) / 30.0, 0.0, 1.0) * (0.35 + 0.15 * sin(Time.get_ticks_msec() / 200.0))
+	_hurt_vignette.modulate.a = maxf(_hurt_time * 2.0, low_health)
 
 
 func _status_text() -> String:

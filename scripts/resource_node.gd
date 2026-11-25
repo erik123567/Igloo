@@ -1,6 +1,17 @@
 extends Node2D
 ## Anything you can gather with E: sticks, stones, flint rocks, snow drifts, berry bushes, meat.
 
+const TEX := {
+	"sticks": preload("res://art/sticks.png"),
+	"stone": preload("res://art/stone.png"),
+	"flint_rock": preload("res://art/flint_rock.png"),
+	"flint_rock_empty": preload("res://art/flint_rock_empty.png"),
+	"snow_drift": preload("res://art/snow_drift.png"),
+	"berry_bush": preload("res://art/bush_berries.png"),
+	"berry_bush_empty": preload("res://art/bush_empty.png"),
+	"meat": preload("res://art/meat.png"),
+}
+
 var main
 var kind := "sticks"
 var amount := 1           # used by meat drops
@@ -63,11 +74,15 @@ func interact(player) -> void:
 		"flint_rock":
 			if player.spend_energy(3.0):
 				uses -= 1
+				main.audio.play("gather", position)
+				main.puff(position + Vector2(0, -8), Color(0.55, 0.55, 0.6), 6, 50.0)
 				player.add_item("flint", 1)
 				if randf() < 0.3:
 					player.add_item("stone", 1)
 		"snow_drift":
 			if player.spend_energy(2.0):
+				main.audio.play("gather", position, -2.0)
+				main.puff(position + Vector2(0, -4), Color(1, 1, 1), 10, 55.0)
 				player.add_item("snow_block", 1)
 		"berry_bush":
 			if player.spend_energy(0.5):
@@ -85,55 +100,18 @@ func new_day() -> void:
 		queue_redraw()
 
 
-# ---------- Drawing (placeholder art) ----------
-
-func _shadow(r: float, y: float = 3.0) -> void:
-	draw_set_transform(Vector2(0, y), 0, Vector2(1, 0.4))
-	draw_circle(Vector2.ZERO, r, Color(0, 0, 0, 0.15))
-	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-
+# ---------- Drawing ----------
 
 func _draw() -> void:
-	match kind:
-		"sticks":
-			var brown := Color(0.45, 0.3, 0.15)
-			draw_line(Vector2(-8, 2), Vector2(8, -2), brown, 2.5)
-			draw_line(Vector2(-6, -3), Vector2(7, 4), brown.darkened(0.2), 2.0)
-			draw_line(Vector2(-3, 4), Vector2(5, -5), brown.lightened(0.1), 2.0)
-		"stone":
-			_shadow(6.0)
-			draw_circle(Vector2.ZERO, 5.5, Color(0.5, 0.5, 0.55))
-			draw_circle(Vector2(-1.5, -1.5), 2.2, Color(0.68, 0.68, 0.72))
-		"flint_rock":
-			_shadow(22.0, 6.0)
-			var pts := PackedVector2Array([
-				Vector2(-22, 6), Vector2(-18, -10), Vector2(-6, -18), Vector2(10, -16),
-				Vector2(21, -4), Vector2(18, 8), Vector2(0, 11)])
-			draw_colored_polygon(pts, Color(0.42, 0.42, 0.47))
-			draw_colored_polygon(PackedVector2Array([Vector2(-14, -11), Vector2(-6, -18), Vector2(10, -16), Vector2(4, -11)]), Color(0.95, 0.97, 1))
-			for i in maxi(uses, 0):
-				var p := Vector2(-12 + i * 8, -2 + (i % 2) * 5)
-				draw_colored_polygon(PackedVector2Array([p + Vector2(-3, 0), p + Vector2(0, -4), p + Vector2(3, 0), p + Vector2(0, 3)]), Color(0.15, 0.15, 0.2))
-		"snow_drift":
-			_shadow(16.0, 4.0)
-			draw_set_transform(Vector2(0, 0), 0, Vector2(1.0, 0.6))
-			draw_circle(Vector2.ZERO, 17, Color(0.78, 0.86, 0.97))
-			draw_circle(Vector2(-3, -4), 13, Color(0.97, 0.99, 1))
-			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-			draw_line(Vector2(-6, -2), Vector2(6, -2), Color(0.7, 0.8, 0.93), 1.0)
-		"berry_bush":
-			_shadow(13.0, 5.0)
-			var green := Color(0.16, 0.36, 0.2)
-			draw_circle(Vector2(-6, 0), 8, green)
-			draw_circle(Vector2(6, 0), 8, green)
-			draw_circle(Vector2(0, -6), 9, green.lightened(0.1))
-			draw_circle(Vector2(-2, -12), 4, Color(0.95, 0.97, 1))
-			var spots := [Vector2(-7, -2), Vector2(5, -4), Vector2(1, 3)]
-			for i in uses:
-				draw_circle(spots[i % 3], 2.6, Color(0.85, 0.1, 0.2))
-		"meat":
-			_shadow(8.0)
-			draw_set_transform(Vector2.ZERO, 0.3, Vector2(1, 0.65))
-			draw_circle(Vector2.ZERO, 8, Color(0.75, 0.25, 0.3))
-			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-			draw_line(Vector2(5, 2), Vector2(11, 5), Color(0.95, 0.92, 0.85), 2.5)
+	var key := kind
+	if kind == "flint_rock" and uses == 0:
+		key = "flint_rock_empty"
+	elif kind == "berry_bush" and uses == 0:
+		key = "berry_bush_empty"
+	var tex: Texture2D = TEX[key]
+	var sz := tex.get_size()
+	var bottom := 3.0 if kind in ["sticks", "stone", "meat"] else 5.0
+	draw_set_transform(Vector2(0, bottom - 2.0), 0, Vector2(1, 0.3))
+	draw_circle(Vector2.ZERO, sz.x * 0.45, Color(0, 0, 0, 0.12))
+	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	draw_texture(tex, Vector2(-floorf(sz.x / 2.0), bottom - sz.y))

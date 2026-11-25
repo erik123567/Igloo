@@ -5,20 +5,18 @@ var world_size := Vector2(2400, 1600)
 var shore_y := 1380.0
 
 
+const TEX := preload("res://art/snow_tile.png")
+
+
 func _ready() -> void:
 	z_index = -10
+	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2(-200, -200), world_size + Vector2(400, 400)), Color(0.93, 0.95, 0.98))
+	draw_texture_rect(TEX, Rect2(Vector2(-256, -256), world_size + Vector2(512, 512)), true)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
-	for i in 160:
-		var p := Vector2(rng.randf_range(0, world_size.x), rng.randf_range(0, shore_y))
-		var r := rng.randf_range(20, 90)
-		draw_set_transform(p, 0, Vector2(1, 0.45))
-		draw_circle(Vector2.ZERO, r, Color(0.82, 0.88, 0.96, 0.35))
-		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	# frozen shore (walkable ice)
 	var ice := PackedVector2Array()
 	var water := PackedVector2Array()

@@ -2,7 +2,7 @@ extends Node2D
 ## An igloo: mark a spot, then place snow blocks one at a time until the dome is finished.
 ## A finished igloo keeps out most of the cold and all of the wolves, and lets you sleep.
 
-const BLOCKS_NEEDED := 10
+const BLOCKS_NEEDED := 6
 const RADIUS := 34.0
 
 const TEX_DONE := preload("res://art/igloo.png")

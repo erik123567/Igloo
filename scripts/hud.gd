@@ -5,28 +5,30 @@ extends CanvasLayer
 const ITEM_NAMES := {
 	"sticks": "Sticks", "flint": "Flint", "stone": "Stone", "snow_block": "Snow blocks",
 	"berries": "Berries", "raw_meat": "Raw meat", "cooked_meat": "Cooked meat",
+	"logs": "Logs", "arrows": "Arrows", "torch": "Torches",
 }
 
 const HELP_TEXT := """CONTROLS  (H to hide)
 Move: WASD or arrow keys
 Sprint: Shift (uses energy)
-Gather / use: E (hold to repeat)
-Crafting menu: Tab
-Eat: Q
-Cook meat at a fire: C
+Gather / use / chop: E (hold)
+Crafting menu: Tab, then 1-7
 Attack / hunt: Space
-  (sprint after a hare until it stops
-   to rest, then hit it for meat)
+Switch weapon: F
+Light a torch: T
+Eat: Q    Cook at a fire: C
 Sleep in a finished igloo: Z
 Pause: Esc
 
 SURVIVE 3 NIGHTS
-1. Pick up sticks, flint and a stone.
-2. Tab, then 1: build a campfire.
-3. Tab, then 2: mark an igloo.
-4. Cut snow blocks from drifts and
-   place them on the igloo (E).
-5. Light a fire inside, then sleep (Z)."""
+- Sticks, flint, stone: make a fire.
+- Storms hit without much warning.
+  Build an igloo (6 snow blocks)
+  and get inside before it hits.
+- Hail hurts in the open. Trees
+  help a little, igloos fully.
+- Axe: chop trees for logs.
+  Spear and bow: hunt and fight."""
 
 var main
 var player
@@ -52,6 +54,8 @@ var _pause_box: CenterContainer
 var _frost: TextureRect
 var _hurt_vignette: TextureRect
 var _hurt_time := 0.0
+var _blizzard: TextureRect
+var _gear: Label
 
 
 func _ready() -> void:
@@ -90,16 +94,23 @@ func _ready() -> void:
 	root.add_child(_message)
 
 	_prompt = _label(19, HORIZONTAL_ALIGNMENT_CENTER)
-	_wide(_prompt, 1.0, -96.0, -66.0)
+	_wide(_prompt, 1.0, -126.0, -96.0)
 	root.add_child(_prompt)
 
 	_toast = _label(17, HORIZONTAL_ALIGNMENT_LEFT)
-	_wide(_toast, 1.0, -68.0, -44.0)
+	_wide(_toast, 1.0, -92.0, -68.0)
 	_toast.offset_left = 16
 	root.add_child(_toast)
 
-	_inv = _label(17, HORIZONTAL_ALIGNMENT_LEFT)
-	_wide(_inv, 1.0, -38.0, -10.0)
+	_gear = _label(17, HORIZONTAL_ALIGNMENT_RIGHT)
+	_wide(_gear, 1.0, -38.0, -10.0)
+	_gear.offset_right = -16
+	root.add_child(_gear)
+
+	_inv = _label(16, HORIZONTAL_ALIGNMENT_LEFT)
+	_inv.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_wide(_inv, 1.0, -62.0, -10.0)
+	_inv.offset_right = -330
 	_inv.offset_left = 16
 	root.add_child(_inv)
 
@@ -133,6 +144,9 @@ func _ready() -> void:
 	root.add_child(_frost)
 	_hurt_vignette = _vignette(Color(0.8, 0.05, 0.05, 0.7))
 	root.add_child(_hurt_vignette)
+	_blizzard = _vignette(Color(0.93, 0.95, 1.0, 1.0), 0.0, Color(0.93, 0.95, 1.0, 0.45))
+	root.add_child(_blizzard)
+	root.move_child(_blizzard, 0)
 
 	# Sleep fade
 	_fade = ColorRect.new()
@@ -173,10 +187,11 @@ func _ready() -> void:
 
 # ---------- Builders ----------
 
-func _vignette(edge: Color) -> TextureRect:
+func _vignette(edge: Color, clear_until: float = 0.55, center: Color = Color(0, 0, 0, 0)) -> TextureRect:
 	var g := Gradient.new()
-	g.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
-	g.colors = PackedColorArray([Color(edge, 0.0), Color(edge, 0.0), edge])
+	var mid := center if center.a > 0.0 else Color(edge, 0.0)
+	g.offsets = PackedFloat32Array([0.0, maxf(clear_until, 0.01), 1.0])
+	g.colors = PackedColorArray([mid, mid, edge])
 	var tex := GradientTexture2D.new()
 	tex.gradient = g
 	tex.fill = GradientTexture2D.FILL_RADIAL
@@ -307,10 +322,10 @@ func _process(delta: float) -> void:
 	_bars["Energy"].value = player.energy
 	_bars["Health"].value = player.health
 
-	_clock.text = "Day %d   %s   %s" % [main.day, main.clock_text(), main.phase_name()]
+	_clock.text = "Day %d   %s   %s   |   %s" % [main.day, main.clock_text(), main.phase_name(), main.weather.label()]
 
 	var parts := []
-	for key in ["sticks", "flint", "stone", "snow_block", "berries", "raw_meat", "cooked_meat"]:
+	for key in ["sticks", "flint", "stone", "snow_block", "logs", "berries", "raw_meat", "cooked_meat", "arrows", "torch"]:
 		parts.append("%s %d" % [ITEM_NAMES[key], player.inventory[key]])
 	_inv.text = "   ".join(PackedStringArray(parts))
 
@@ -326,6 +341,16 @@ func _process(delta: float) -> void:
 		_prompt.text = ""
 
 	_status.text = _status_text()
+	var gear := "Holding: %s" % player.weapon.capitalize()
+	if player.weapon == "bow":
+		gear += " (%d arrows)" % player.inventory["arrows"]
+	if player.tools["axe"]:
+		gear += "   Axe"
+	if player.torch_time > 0.0:
+		gear += "   Torch: %ds" % int(player.torch_time)
+	_gear.text = gear
+	var inside: bool = main.get_igloo_at(player.position) != null
+	_blizzard.modulate.a = main.weather.blizzard * (0.25 if inside else 0.95)
 
 	_message_time -= delta
 	_message.modulate.a = clampf(_message_time, 0.0, 1.0)
@@ -347,6 +372,8 @@ func _status_text() -> String:
 		lines.append("Warming by the fire")
 	elif player.warmth_source == "igloo":
 		lines.append("Sheltered in the igloo")
+	if main.weather.is_storm() and main.get_igloo_at(player.position) == null:
+		lines.append("Storm! Get inside an igloo.")
 	if player.temp < 25.0:
 		lines.append("You're freezing! Get to a fire.")
 	if player.hunger < 15.0:
@@ -357,16 +384,19 @@ func _status_text() -> String:
 
 
 func _craft_text() -> String:
-	var inv: Dictionary = player.inventory
-	var fire_missing := []
-	if inv["sticks"] < 3:
-		fire_missing.append("%d sticks" % (3 - inv["sticks"]))
-	if inv["flint"] < 1:
-		fire_missing.append("1 flint")
-	if inv["stone"] < 1:
-		fire_missing.append("a stone")
-	var fire_state := "READY" if fire_missing.is_empty() else "need " + ", ".join(PackedStringArray(fire_missing))
-	return "CRAFTING   (Tab to close)\n\n[1]  Campfire: 3 sticks + 1 flint, struck with a stone   (%s)\n[2]  Igloo foundation: free. Fill it with 10 snow blocks." % fire_state
+	var lines := ["CRAFTING   (Tab to close, press a number to make it)", ""]
+	var i := 1
+	for r in main.get_recipes():
+		var cost_parts := []
+		for item in r["cost"]:
+			cost_parts.append("%d %s" % [r["cost"][item], item_name(item).to_lower()])
+		var cost := "free" if cost_parts.is_empty() else ", ".join(PackedStringArray(cost_parts))
+		var miss: String = main.missing_for(r)
+		var state := "READY" if miss == "" else miss
+		var note: String = r["note"]
+		lines.append("[%d]  %s: %s%s   (%s)" % [i, r["name"], cost, (" - " + note) if note != "" else "", state])
+		i += 1
+	return "\n".join(PackedStringArray(lines))
 
 
 func _unhandled_input(event: InputEvent) -> void:

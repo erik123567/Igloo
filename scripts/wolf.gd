@@ -105,8 +105,8 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-func take_hit(player) -> void:
-	hp -= 1
+func take_hit(player, damage: int = 1) -> void:
+	hp -= damage
 	_hurt = 0.2
 	_back_off = 2.0
 	position += (position - player.position).normalized() * 18.0

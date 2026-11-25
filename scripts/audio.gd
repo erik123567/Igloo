@@ -19,6 +19,10 @@ const STREAMS := {
 	"chime": preload("res://sfx/chime.wav"),
 	"fire_loop": preload("res://sfx/fire_loop.wav"),
 	"wind_loop": preload("res://sfx/wind_loop.wav"),
+	"chop": preload("res://sfx/chop.wav"),
+	"bow": preload("res://sfx/bow.wav"),
+	"hail_loop": preload("res://sfx/hail_loop.wav"),
+	"rumble": preload("res://sfx/rumble.wav"),
 }
 const HEARING_RANGE := 700.0
 
@@ -27,6 +31,7 @@ var _pool: Array[AudioStreamPlayer] = []
 var _next := 0
 var _wind: AudioStreamPlayer
 var _crackle: AudioStreamPlayer
+var _hail: AudioStreamPlayer
 
 
 func _ready() -> void:
@@ -36,6 +41,7 @@ func _ready() -> void:
 		_pool.append(p)
 	_wind = _make_loop("wind_loop")
 	_crackle = _make_loop("fire_loop")
+	_hail = _make_loop("hail_loop")
 
 
 func _make_loop(stream_name: String) -> AudioStreamPlayer:
@@ -69,7 +75,9 @@ func _process(_delta: float) -> void:
 		return
 	var nf: float = main.get_night_factor()
 	var inside: bool = main.get_igloo_at(main.player.position) != null
-	var wind_level := (0.22 + 0.4 * nf) * (0.3 if inside else 1.0)
+	var storm: float = main.weather.blizzard
+	var wind_level := minf(0.22 + 0.4 * nf + 0.9 * storm, 1.4) * (0.3 if inside else 1.0)
+	_hail.volume_db = linear_to_db(maxf(main.weather.hail * (0.35 if inside else 1.0), 0.001))
 	_wind.volume_db = linear_to_db(wind_level)
 	var fire_level := 0.0
 	var f = main.get_nearby_fire(main.player.position, 400.0)

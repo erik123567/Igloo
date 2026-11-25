@@ -13,6 +13,8 @@ const HareScript = preload("res://scripts/hare.gd")
 const GroundScript = preload("res://scripts/ground.gd")
 const AudioScript = preload("res://scripts/audio.gd")
 const FxScript = preload("res://scripts/fx.gd")
+const WeatherScript = preload("res://scripts/weather.gd")
+const ArrowScript = preload("res://scripts/arrow.gd")
 
 # ---------- Tuning (change these numbers to balance the game) ----------
 const DAY_LENGTH := 360.0      # real seconds for one full day + night
@@ -24,6 +26,16 @@ const NIGHT_START := 0.76      # full night, wolves come out
 const WIN_DAYS := 3            # survive this many nights to win
 const HARES_PER_DAY := 5
 const MAX_WOLVES := 5
+
+const RECIPES := [
+	{"key": "campfire", "name": "Campfire", "cost": {"sticks": 3, "flint": 1}, "note": "struck with a stone"},
+	{"key": "igloo", "name": "Igloo shelter", "cost": {}, "note": "then fill it with 6 snow blocks"},
+	{"key": "axe", "name": "Stone axe", "cost": {"sticks": 2, "stone": 1, "flint": 1}, "note": "chop trees for logs"},
+	{"key": "spear", "name": "Spear", "cost": {"sticks": 3, "flint": 1}, "note": "hits twice as hard, longer reach"},
+	{"key": "bow", "name": "Bow", "cost": {"logs": 1, "sticks": 2}, "note": "shoot arrows from afar"},
+	{"key": "arrows", "name": "5 arrows", "cost": {"sticks": 2, "flint": 1}, "note": ""},
+	{"key": "torch", "name": "Torch", "cost": {"sticks": 3}, "note": "light and a little warmth, T to light"},
+]
 
 var world_size := Vector2(2400, 1600)
 var shore_y := 1380.0          # ice starts here, open water below
@@ -39,6 +51,7 @@ var sleeping := false
 var world: Node2D
 var fx
 var audio
+var weather
 var cam: Camera2D
 var _shake := 0.0
 var player
@@ -90,6 +103,11 @@ func _ready() -> void:
 	audio.main = self
 	add_child(audio)
 
+	weather = WeatherScript.new()
+	weather.main = self
+	add_child(weather)
+	weather.attach_to(player)
+
 	hud = HudScript.new()
 	hud.main = self
 	hud.player = player
@@ -117,6 +135,13 @@ func _setup_input() -> void:
 		"craft_menu": [KEY_TAB],
 		"craft_1": [KEY_1],
 		"craft_2": [KEY_2],
+		"craft_3": [KEY_3],
+		"craft_4": [KEY_4],
+		"craft_5": [KEY_5],
+		"craft_6": [KEY_6],
+		"craft_7": [KEY_7],
+		"cycle_weapon": [KEY_F],
+		"torch": [KEY_T],
 		"toggle_help": [KEY_H],
 		"pause": [KEY_ESCAPE],
 		"restart": [KEY_R],
@@ -164,6 +189,7 @@ func _build_map() -> void:
 		trees.append(_away_from_spawn(60, 450, world_size.x - 60, shore_y - 120, 220))
 	for t in trees:
 		var tree = PineScript.new()
+		tree.main = self
 		tree.position = t
 		tree.size = 2.0 if rng.randf() < 0.25 else 1.0
 		world.add_child(tree)
@@ -418,42 +444,103 @@ func fear_push(pos: Vector2) -> Vector2:
 
 # ---------- Crafting ----------
 
-func try_craft(which: int) -> void:
+func get_recipes() -> Array:
+	return RECIPES
+
+
+## Returns "" if the player can craft recipe r, otherwise what's missing.
+func missing_for(r: Dictionary) -> String:
 	var inv: Dictionary = player.inventory
+	var key: String = r["key"]
+	if key in ["axe", "spear", "bow"] and player.tools[key]:
+		return "already have one"
+	var missing := []
+	var cost: Dictionary = r["cost"]
+	for item in cost:
+		if inv[item] < cost[item]:
+			missing.append("%d %s" % [cost[item] - inv[item], hud.item_name(item).to_lower()])
+	if key == "campfire" and inv["stone"] < 1:
+		missing.append("a stone")
+	if missing.is_empty():
+		return ""
+	return "need " + ", ".join(PackedStringArray(missing))
+
+
+func try_craft(which: int) -> void:
+	if which < 1 or which > RECIPES.size():
+		return
+	var r: Dictionary = RECIPES[which - 1]
+	var miss := missing_for(r)
+	if miss != "":
+		hud.show_message("%s: %s." % [r["name"], miss])
+		return
+	var key: String = r["key"]
 	var place: Vector2 = player.position + player.facing * 22.0
 	place.x = clampf(place.x, 30, world_size.x - 30)
 	place.y = clampf(place.y, 30, shore_y + 40)
-	if which == 1:
-		if inv["sticks"] < 3 or inv["flint"] < 1 or inv["stone"] < 1:
-			hud.show_message("A campfire needs 3 sticks and 1 flint, plus a stone to strike it with.")
-			return
+	if key == "campfire":
 		for f in get_tree().get_nodes_in_group("fire"):
 			if f.position.distance_to(place) < 40:
 				hud.show_message("There's already a fire here.")
 				return
-		inv["sticks"] -= 3
-		inv["flint"] -= 1
-		var fire = FireScript.new()
-		fire.main = self
-		fire.position = place
-		world.add_child(fire)
-		audio.play("ignite", place)
-		puff(place, Color(1.0, 0.7, 0.3), 14)
-		hud.show_message("You strike flint against stone... the tinder catches!\nFeed the fire with sticks (E) or it will burn out.", 6.0)
-	elif which == 2:
-		var site: Vector2 = player.position + player.facing * 50.0
-		site.x = clampf(site.x, 50, world_size.x - 50)
-		site.y = clampf(site.y, 50, shore_y)
+	elif key == "igloo":
+		place = player.position + player.facing * 50.0
+		place.x = clampf(place.x, 50, world_size.x - 50)
+		place.y = clampf(place.y, 50, shore_y)
 		for ig in get_tree().get_nodes_in_group("igloo"):
-			if ig.position.distance_to(site) < 110:
+			if ig.position.distance_to(place) < 110:
 				hud.show_message("Too close to another igloo.")
 				return
-		var igloo = IglooScript.new()
-		igloo.main = self
-		igloo.position = site
-		world.add_child(igloo)
-		hud.show_message("Igloo marked. Cut snow blocks from snow drifts,\nthen hold E at the igloo to place them (0/%d)." % igloo.blocks_needed(), 6.0)
+	var cost: Dictionary = r["cost"]
+	for item in cost:
+		player.inventory[item] -= cost[item]
+	match key:
+		"campfire":
+			var fire = FireScript.new()
+			fire.main = self
+			fire.position = place
+			world.add_child(fire)
+			audio.play("ignite", place)
+			puff(place, Color(1.0, 0.7, 0.3), 14)
+			hud.show_message("You strike flint against stone... the tinder catches!\nFeed the fire with sticks (E) or it will burn out.", 6.0)
+		"igloo":
+			var igloo = IglooScript.new()
+			igloo.main = self
+			igloo.position = place
+			world.add_child(igloo)
+			hud.show_message("Igloo marked. Cut snow blocks from snow drifts,\nthen hold E at the igloo to place them (0/%d)." % igloo.blocks_needed(), 6.0)
+		"axe":
+			player.tools["axe"] = true
+			hud.show_message("Stone axe made. Hold E at a tree to chop it for logs.", 5.0)
+		"spear", "bow":
+			player.tools[key] = true
+			player.weapon = key
+			hud.show_message("%s made and in hand. F switches weapons." % r["name"], 5.0)
+		"arrows":
+			player.inventory["arrows"] += 5
+			hud.show_toast("+5 arrows")
+		"torch":
+			player.inventory["torch"] += 1
+			hud.show_message("Torch made. Press T to light it.", 4.0)
+	audio.play("pickup", null, -4.0)
 	hud.set_craft_open(false)
+
+
+func shoot_arrow(from: Vector2, dir: Vector2) -> void:
+	var a = ArrowScript.new()
+	a.main = self
+	a.shooter = player
+	a.dir = dir
+	a.position = from
+	add_child(a)
+
+
+## True when standing under a tree's branches (softens hail).
+func under_tree(pos: Vector2) -> bool:
+	for t in get_tree().get_nodes_in_group("tree"):
+		if not t.chopped and pos.distance_to(t.position) < 16.0 * t.size:
+			return true
+	return false
 
 
 # ---------- Sleep ----------
@@ -480,6 +567,8 @@ func _finish_sleep() -> void:
 		f.burn(skipped * DAY_LENGTH * 0.5)
 	for w in get_tree().get_nodes_in_group("wolf"):
 		w.queue_free()
+	if weather.is_storm():
+		weather.end_storm(true)
 	var sleep_msg: String = player.apply_sleep(had_fire)
 	sleeping = false
 	_update_lighting()

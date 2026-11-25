@@ -168,4 +168,31 @@ save("wind_loop", w1 * gust, 0.55)
 x = np.concatenate([tone([f], 0.16) * env(int(0.16 * SR), 0.005, 0.2) for f in (523, 659, 784)] + [tone([1046], 0.6) * env(int(0.6 * SR), 0.005, 0.3)])
 save("chime", x, 0.4)
 
+# axe chop: sharp knock
+n = noise(0.2)
+x = highpass(n, 1200) * env(len(n), 0.001, 0.015) + tone([300, 140], 0.2, "tri") * env(len(n), 0.001, 0.05)
+save("chop", x, 0.7)
+
+# bow shot: twang
+x = tone([220, 200], 0.3, "tri") * env(int(0.3 * SR), 0.002, 0.08) + 0.3 * highpass(noise(0.3), 2000) * env(int(0.3 * SR), 0.001, 0.02)
+save("bow", x, 0.55)
+
+# hail loop (3 s): dense random ticks
+sec = 3.0
+n = int(sec * SR)
+x = 0.15 * highpass(noise(sec), 3000)
+for _ in range(500):
+    p = rng.integers(0, n - 300)
+    L = rng.integers(40, 160)
+    x[p : p + L] += rng.uniform(0.2, 1.0) * highpass(rng.uniform(-1, 1, L), 2500) * env(L, 0.0003, L / SR / 5)
+fade = int(0.05 * SR)
+x[:fade] *= np.linspace(0, 1, fade)
+x[-fade:] *= np.linspace(1, 0, fade)
+save("hail_loop", x, 0.45)
+
+# storm warning: low rumble
+sec = 2.5
+x = lowpass(noise(sec), 120) * np.sin(np.linspace(0, np.pi, int(sec * SR))) + 0.3 * tone([55, 45], sec) * np.sin(np.linspace(0, np.pi, int(sec * SR)))
+save("rumble", x, 0.7)
+
 print("sounds written to", os.path.abspath(OUT))

@@ -58,7 +58,7 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-func take_hit(_player) -> void:
+func take_hit(_player, _damage: int = 1) -> void:
 	main.audio.play("squeak", position)
 	main.audio.play("hit", position, -4.0)
 	main.puff(position, Color(0.8, 0.74, 0.66), 10, 60.0)

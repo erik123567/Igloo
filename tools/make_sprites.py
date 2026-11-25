@@ -322,4 +322,13 @@ bdraw.rectangle([0, 0, 9, 3], fill=(250, 252, 255, 255))
 bdraw.rectangle([7, 4, 9, 13], fill=(208, 220, 240, 255))
 save(outline(block), "snow_block")
 
+# ---------------- Stump ----------------
+stump = Image.new("RGBA", (14, 9), (0, 0, 0, 0))
+sdr = ImageDraw.Draw(stump)
+sdr.rectangle([1, 3, 12, 8], fill=(100, 64, 36, 255))
+sdr.rectangle([9, 3, 12, 8], fill=(76, 48, 28, 255))
+sdr.ellipse([1, 0, 12, 5], fill=(196, 160, 110, 255))
+sdr.ellipse([4, 1, 9, 4], fill=(170, 130, 84, 255))
+save(outline(stump), "stump")
+
 print("sprites written to", os.path.abspath(OUT))

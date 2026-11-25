@@ -37,7 +37,12 @@ var health := 100.0
 var inventory := {
 	"sticks": 0, "flint": 0, "stone": 0, "snow_block": 0,
 	"berries": 0, "raw_meat": 0, "cooked_meat": 0,
+	"logs": 0, "arrows": 0, "torch": 0,
 }
+var tools := {"axe": false, "spear": false, "bow": false}
+var weapon := "hands"        # "hands", "spear" or "bow"
+var torch_time := 0.0        # seconds left on the torch you're holding
+const TORCH_BURN := 90.0
 
 var facing := Vector2.DOWN
 var is_moving := false
@@ -56,6 +61,7 @@ var _light: PointLight2D
 var _step_dist := 0.0
 var _step_left := false
 var _breath := 0.0
+var _hail_tick := 0.0
 
 
 func _ready() -> void:
@@ -98,7 +104,14 @@ func _process(delta: float) -> void:
 	_find_target()
 	prey = _nearest_attackable(ATTACK_RANGE + 30.0)
 	_handle_actions()
-	_light.energy = 0.55 * main.get_night_factor()
+	if torch_time > 0.0:
+		_light.energy = 0.5 + 0.8 * main.get_night_factor() + sin(Time.get_ticks_msec() / 90.0) * 0.06
+		_light.texture_scale = 2.4
+		_light.color = Color(1.0, 0.72, 0.42)
+	else:
+		_light.energy = 0.55 * main.get_night_factor()
+		_light.texture_scale = 1.4
+		_light.color = Color(0.75, 0.82, 1.0)
 	# frosty breath when it's cold
 	_breath -= delta
 	if _breath <= 0.0:
@@ -117,6 +130,7 @@ func _move(delta: float) -> void:
 		speed *= COLD_SLOW
 	if energy < 10.0 and not is_sprinting:
 		speed *= 0.85
+	speed *= main.weather.speed_multiplier()
 	if is_moving:
 		facing = dir.normalized()
 		position += dir * speed * delta
@@ -136,9 +150,28 @@ func _update_stats(delta: float) -> void:
 	var nf: float = main.get_night_factor()
 	var rate := -lerpf(TEMP_DRAIN_DAY, TEMP_DRAIN_NIGHT, nf)
 	warmth_source = ""
-	if main.get_igloo_at(position) != null:
+	var sheltered: bool = main.get_igloo_at(position) != null
+	if sheltered:
 		rate *= IGLOO_INSULATION
 		warmth_source = "igloo"
+	else:
+		rate *= main.weather.cold_multiplier()
+	if torch_time > 0.0:
+		torch_time = maxf(torch_time - delta * (1.0 + main.weather.blizzard), 0.0)
+		rate += 0.4
+		if torch_time <= 0.0:
+			say("Your torch has burned out.")
+	# hail hurts out in the open; a tree's branches help a bit
+	var hail_dmg: float = main.weather.hail_damage()
+	if hail_dmg > 0.0 and not sheltered:
+		if main.under_tree(position):
+			hail_dmg *= 0.3
+		take_damage(hail_dmg * delta, "hail", false)
+		_hail_tick -= delta
+		if _hail_tick <= 0.0:
+			_hail_tick = 1.0
+			_hurt = 0.15
+			main.hud.flash_damage()
 	var heat: float = main.get_fire_heat(position)
 	if heat > 0.0:
 		rate += 0.8 + FIRE_WARMTH * heat
@@ -174,7 +207,7 @@ func _find_target() -> void:
 		if not is_instance_valid(n) or n.is_queued_for_deletion():
 			continue
 		var d: float = position.distance_to(n.position) - n.interact_radius
-		if d < INTERACT_RANGE and d < best:
+		if d < INTERACT_RANGE and d < best and n.get_prompt(self) != "":
 			best = d
 			target = n
 
@@ -194,10 +227,14 @@ func _handle_actions() -> void:
 	if Input.is_action_just_pressed("sleep"):
 		main.try_sleep()
 	if main.hud.craft_open:
-		if Input.is_action_just_pressed("craft_1"):
-			main.try_craft(1)
-		elif Input.is_action_just_pressed("craft_2"):
-			main.try_craft(2)
+		for i in range(1, 8):
+			if Input.is_action_just_pressed("craft_%d" % i):
+				main.try_craft(i)
+				break
+	if Input.is_action_just_pressed("cycle_weapon"):
+		_cycle_weapon()
+	if Input.is_action_just_pressed("torch"):
+		_light_torch()
 
 
 func _use_target() -> void:
@@ -209,14 +246,57 @@ func _use_target() -> void:
 
 
 func _attack() -> void:
-	_attack_cd = 0.45
+	if weapon == "bow":
+		_attack_cd = 0.7
+		if inventory["arrows"] <= 0:
+			say("You're out of arrows. Craft more (Tab).")
+			return
+		inventory["arrows"] -= 1
+		var dir := facing
+		# gentle auto-aim toward the nearest animal roughly in front of you
+		var best_d := 320.0
+		for n in get_tree().get_nodes_in_group("attackable"):
+			var to: Vector2 = n.position - position
+			if to.length() < best_d and absf(facing.angle_to(to)) < 0.5:
+				best_d = to.length()
+				dir = to.normalized()
+		facing = dir
+		main.audio.play("bow", null, -3.0)
+		main.shoot_arrow(position + Vector2(0, -6) + dir * 8.0, dir)
+		return
+	_attack_cd = 0.45 if weapon == "hands" else 0.55
 	_swing = 0.18
-	main.audio.play("swing", null, -4.0)
 	energy = maxf(energy - 3.0, 0.0)
-	var best = _nearest_attackable(ATTACK_RANGE)
+	main.audio.play("swing", null, -4.0)
+	var reach := ATTACK_RANGE + (16.0 if weapon == "spear" else 0.0)
+	var best = _nearest_attackable(reach)
 	if best != null:
 		facing = (best.position - position).normalized()
-		best.take_hit(self)
+		best.take_hit(self, 2 if weapon == "spear" else 1)
+
+
+func _cycle_weapon() -> void:
+	var options := ["hands"]
+	for w in ["spear", "bow"]:
+		if tools[w]:
+			options.append(w)
+	if options.size() == 1:
+		say("You only have your hands. Craft a spear or bow (Tab).")
+		return
+	weapon = options[(options.find(weapon) + 1) % options.size()]
+	main.hud.show_toast("Holding: %s" % weapon.capitalize())
+
+
+func _light_torch() -> void:
+	if torch_time > 0.0:
+		say("Your torch is already burning (%ds left)." % int(torch_time))
+		return
+	if inventory["torch"] <= 0:
+		say("You have no torches. Craft one (Tab): 3 sticks.")
+		return
+	inventory["torch"] -= 1
+	torch_time = TORCH_BURN
+	main.audio.play("ignite", null, -6.0)
 
 
 func _nearest_attackable(reach: float):
@@ -347,8 +427,30 @@ func _draw() -> void:
 		else:
 			frame = [1, 0, 2, 0][int(_walk) % 4]
 	draw_set_transform(Vector2.ZERO, 0, Vector2(flip, 1))
+	var behind := view == "up"
+	if behind:
+		_draw_held()
 	draw_texture(TEX[view][frame], Vector2(-8, -15), tint)
+	if not behind:
+		_draw_held()
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	if _swing > 0.0:
 		var a := facing.angle()
 		draw_arc(facing * 10.0 + Vector2(0, -5), 12, a - 1.0, a + 1.0, 10, Color(1, 1, 1, 0.9), 2.0)
+
+
+## Draws the weapon and torch in your hands (in the sprite's own flipped space).
+func _draw_held() -> void:
+	var hand := Vector2(7, -5)
+	if weapon == "spear":
+		draw_line(hand + Vector2(0, 6), hand + Vector2(0, -16), Color(0.5, 0.34, 0.18), 1.5)
+		draw_colored_polygon(PackedVector2Array([hand + Vector2(-2, -16), hand + Vector2(0, -21), hand + Vector2(2, -16)]), Color(0.25, 0.25, 0.32))
+	elif weapon == "bow":
+		draw_arc(hand + Vector2(-2, -3), 8, -1.3, 1.3, 8, Color(0.5, 0.34, 0.18), 1.5)
+		draw_line(hand + Vector2(-2, -3) + Vector2.from_angle(-1.3) * 8, hand + Vector2(-2, -3) + Vector2.from_angle(1.3) * 8, Color(0.9, 0.9, 0.85), 0.8)
+	if torch_time > 0.0:
+		var t := Vector2(-7, -4)
+		draw_line(t + Vector2(0, 5), t + Vector2(0, -5), Color(0.45, 0.3, 0.15), 2.0)
+		var f := sin(Time.get_ticks_msec() / 70.0) * 0.8
+		draw_colored_polygon(PackedVector2Array([t + Vector2(-2.5, -5), t + Vector2(f, -12), t + Vector2(2.5, -5)]), Color(1, 0.5, 0.12))
+		draw_colored_polygon(PackedVector2Array([t + Vector2(-1.2, -5), t + Vector2(-f * 0.5, -9), t + Vector2(1.2, -5)]), Color(1, 0.88, 0.4))

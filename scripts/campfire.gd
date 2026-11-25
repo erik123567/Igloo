@@ -86,7 +86,10 @@ func _process(delta: float) -> void:
 	if main.game_over or main.sleeping:
 		return
 	if fuel > 0.0:
-		fuel = maxf(fuel - delta, 0.0)
+		var burn_rate := 1.0
+		if main.get_igloo_at(position) == null:
+			burn_rate += main.weather.blizzard  # the wind eats through firewood
+		fuel = maxf(fuel - delta * burn_rate, 0.0)
 		if fuel <= 0.0 and main.player.position.distance_to(position) < 400.0:
 			main.hud.show_message("Your fire has burned out.", 3.0)
 	_flicker += delta * 9.0

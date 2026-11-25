@@ -4,6 +4,8 @@ extends SceneTree
 
 var main
 var frame := 0
+var hail_start := 0.0
+var temp_start := 0.0
 
 
 func _initialize() -> void:
@@ -74,30 +76,28 @@ func _process(_delta: float) -> bool:
 			p.facing = (w0.position - p.position).normalized()
 			p._attack()
 		58:
+			var w0 = get_nodes_in_group("wolf")[0]
+			print("wolf hp after arrow: ", w0.hp)
 			for i in 3:
 				for w in get_nodes_in_group("wolf"):
 					w.take_hit(p, 2)
 			main.weather.start_storm("hail")
-		75:
-			var before: float = p.health
 			main.weather.hail = 1.0
-		76:
-			print("health in hail (outside): ", p.health)
+			hail_start = p.health
+		120:
+			print("health after 1s of hail outside: ", hail_start, " -> ", p.health)
+			assert(p.health < hail_start)
 			main.weather.start_storm("blizzard")
 			main.weather.blizzard = 1.0
-		60:
-			for h in get_nodes_in_group("hare"):
-				h.take_hit(p)
-				break
-		70:
-			for w in get_nodes_in_group("wolf"):
-				w.position = p.position + Vector2(200, 0)
-		80:
+			temp_start = p.temp
+		180:
+			print("body temp after 1s of blizzard: ", temp_start, " -> ", p.temp)
 			for ig in get_nodes_in_group("igloo"):
 				p.position = ig.position
-		90:
+			p.health = 100.0
+		200:
 			main.try_sleep()
-		400:
-			print("SMOKE TEST OK: day ", main.day, ", health ", p.health)
+		500:
+			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())
 			return true
 	return false

@@ -165,7 +165,7 @@ func _update_stats(delta: float) -> void:
 	var hail_dmg: float = main.weather.hail_damage()
 	if hail_dmg > 0.0 and not sheltered:
 		if main.under_tree(position):
-			hail_dmg *= 0.3
+			hail_dmg *= 0.4
 		take_damage(hail_dmg * delta, "hail", false)
 		_hail_tick -= delta
 		if _hail_tick <= 0.0:
@@ -196,7 +196,8 @@ func _update_stats(delta: float) -> void:
 		take_damage(FREEZE_DAMAGE * delta, "the cold", false)
 	if hunger <= 0.0:
 		take_damage(STARVE_DAMAGE * delta, "hunger", false)
-	if temp > 45.0 and hunger > 40.0 and health < 100.0:
+	var pelted := hail_dmg > 0.0 and not sheltered
+	if temp > 45.0 and hunger > 40.0 and health < 100.0 and not pelted:
 		health = minf(health + HEAL_RATE * delta, 100.0)
 
 

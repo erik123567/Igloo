@@ -287,6 +287,8 @@ func show_toast(text: String) -> void:
 func set_craft_open(open: bool) -> void:
 	craft_open = open
 	_craft.visible = open
+	if open:
+		_help.visible = false
 
 
 func play_sleep(on_dark: Callable) -> void:

@@ -1,0 +1,71 @@
+# Builds the browser version of Igloo on every push to main and publishes it to GitHub Pages.
+name: Build web version
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Godot and the web export templates
+        run: |
+          cd "$RUNNER_TEMP"
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          wget -q "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          wget -q "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+          chmod +x godot
+          unzip -q "Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+
+      - name: Import the project
+        run: timeout 180 "$RUNNER_TEMP/godot" --headless --editor --quit --path . || true
+
+      - name: Run the game briefly and check for script errors
+        run: |
+          timeout 120 "$RUNNER_TEMP/godot" --headless --path . --quit-after 600 > "$RUNNER_TEMP/run.log" 2>&1 || true
+          cat "$RUNNER_TEMP/run.log"
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access|Invalid get|Invalid set" "$RUNNER_TEMP/run.log"; then
+            echo "::error::The game has script errors, see the log above."
+            exit 1
+          fi
+
+      - name: Export for the web
+        run: |
+          mkdir -p build
+          "$RUNNER_TEMP/godot" --headless --path . --export-release "Web" build/index.html
+          ls -la build
+          test -f build/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

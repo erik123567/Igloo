@@ -1,0 +1,455 @@
+extends Node2D
+## Igloo MVP: builds the world, runs the day/night clock, crafting, sleep,
+## and spawns hares by day and wolves by night.
+
+const PlayerScript = preload("res://scripts/player.gd")
+const HudScript = preload("res://scripts/hud.gd")
+const ResourceNodeScript = preload("res://scripts/resource_node.gd")
+const PineScript = preload("res://scripts/pine_tree.gd")
+const FireScript = preload("res://scripts/campfire.gd")
+const IglooScript = preload("res://scripts/igloo.gd")
+const WolfScript = preload("res://scripts/wolf.gd")
+const HareScript = preload("res://scripts/hare.gd")
+const GroundScript = preload("res://scripts/ground.gd")
+
+# ---------- Tuning (change these numbers to balance the game) ----------
+const DAY_LENGTH := 360.0      # real seconds for one full day + night
+const START_TIME := 0.25       # 0.0 = midnight, 0.25 = 6:00, 0.5 = noon
+const DAWN_START := 0.20       # night starts turning to day
+const MORNING := 0.28          # full daylight
+const DUSK_START := 0.68       # sun starts setting
+const NIGHT_START := 0.76      # full night, wolves come out
+const WIN_DAYS := 3            # survive this many nights to win
+const HARES_PER_DAY := 5
+const MAX_WOLVES := 5
+
+var world_size := Vector2(2400, 1600)
+var shore_y := 1380.0          # ice starts here, open water below
+var spawn_point := Vector2(1200, 950)
+
+var time_of_day := START_TIME
+var day := 1
+var game_over := false
+var endless := false
+var won := false
+var sleeping := false
+
+var world: Node2D
+var player
+var hud
+var canvas_mod: CanvasModulate
+var rng := RandomNumberGenerator.new()
+var _light_tex: Texture2D
+
+
+func _ready() -> void:
+	_setup_input()
+
+	var ground = GroundScript.new()
+	ground.world_size = world_size
+	ground.shore_y = shore_y
+	add_child(ground)
+
+	canvas_mod = CanvasModulate.new()
+	add_child(canvas_mod)
+
+	world = Node2D.new()
+	world.y_sort_enabled = true
+	add_child(world)
+
+	rng.seed = 20261125  # same hand-made layout every time
+	_build_map()
+	rng.randomize()
+
+	player = PlayerScript.new()
+	player.main = self
+	player.position = spawn_point
+	world.add_child(player)
+
+	var cam := Camera2D.new()
+	cam.zoom = Vector2(2, 2)
+	cam.limit_left = 0
+	cam.limit_top = 0
+	cam.limit_right = int(world_size.x)
+	cam.limit_bottom = int(world_size.y)
+	cam.position_smoothing_enabled = true
+	cam.position_smoothing_speed = 6.0
+	player.add_child(cam)
+	cam.make_current()
+
+	hud = HudScript.new()
+	hud.main = self
+	hud.player = player
+	add_child(hud)
+
+	_spawn_hares()
+	_update_lighting()
+	hud.show_message("You wake up alone in the snow. It's getting colder...\nFind sticks, flint and a stone to make a fire.", 8.0)
+
+
+# ---------- Input ----------
+
+func _setup_input() -> void:
+	var keys := {
+		"move_up": [KEY_W, KEY_UP],
+		"move_down": [KEY_S, KEY_DOWN],
+		"move_left": [KEY_A, KEY_LEFT],
+		"move_right": [KEY_D, KEY_RIGHT],
+		"sprint": [KEY_SHIFT],
+		"interact": [KEY_E],
+		"attack": [KEY_SPACE],
+		"eat": [KEY_Q],
+		"cook": [KEY_C],
+		"sleep": [KEY_Z],
+		"craft_menu": [KEY_TAB],
+		"craft_1": [KEY_1],
+		"craft_2": [KEY_2],
+		"toggle_help": [KEY_H],
+		"pause": [KEY_ESCAPE],
+		"restart": [KEY_R],
+		"continue": [KEY_ENTER, KEY_KP_ENTER],
+	}
+	for action in keys:
+		if InputMap.has_action(action):
+			continue
+		InputMap.add_action(action)
+		for k in keys[action]:
+			var ev := InputEventKey.new()
+			ev.physical_keycode = k
+			InputMap.action_add_event(action, ev)
+
+
+# ---------- Map ----------
+
+func _rand_point(x0: float, y0: float, x1: float, y1: float) -> Vector2:
+	return Vector2(rng.randf_range(x0, x1), rng.randf_range(y0, y1))
+
+
+func _point_near(center: Vector2, min_d: float, max_d: float) -> Vector2:
+	var a := rng.randf() * TAU
+	var p := center + Vector2(cos(a), sin(a)) * rng.randf_range(min_d, max_d)
+	p.x = clampf(p.x, 40, world_size.x - 40)
+	p.y = clampf(p.y, 40, shore_y - 40)
+	return p
+
+
+func _away_from_spawn(x0: float, y0: float, x1: float, y1: float, min_d: float) -> Vector2:
+	for i in 30:
+		var p := _rand_point(x0, y0, x1, y1)
+		if p.distance_to(spawn_point) >= min_d:
+			return p
+	return _rand_point(x0, y0, x1, y1)
+
+
+func _build_map() -> void:
+	var trees: Array[Vector2] = []
+	# Forest edge along the top of the map
+	for i in 80:
+		trees.append(_rand_point(30, 40, world_size.x - 30, 420))
+	# Scattered trees on the open snow
+	for i in 28:
+		trees.append(_away_from_spawn(60, 450, world_size.x - 60, shore_y - 120, 220))
+	for t in trees:
+		var tree = PineScript.new()
+		tree.position = t
+		tree.size = rng.randf_range(0.8, 1.4)
+		world.add_child(tree)
+
+	# Sticks: mostly under trees, a few close to where you wake up
+	for i in 26:
+		var t: Vector2 = trees[rng.randi() % trees.size()]
+		spawn_resource("sticks", _point_near(t, 18, 50))
+	for i in 10:
+		spawn_resource("sticks", _away_from_spawn(80, 450, world_size.x - 80, shore_y - 60, 100))
+	for i in 3:
+		spawn_resource("sticks", _point_near(spawn_point, 120, 260))
+
+	# Flint outcrops (rocky spots)
+	for p in [Vector2(1520, 1080), Vector2(820, 720), Vector2(1950, 620), Vector2(420, 1150), Vector2(2120, 1220), Vector2(1250, 520)]:
+		spawn_resource("flint_rock", p)
+
+	# Loose stones
+	for i in 14:
+		spawn_resource("stone", _rand_point(80, 450, world_size.x - 80, shore_y - 40))
+	spawn_resource("stone", _point_near(spawn_point, 140, 240))
+
+	# Snow drifts for igloo blocks
+	for i in 24:
+		spawn_resource("snow_drift", _away_from_spawn(80, 460, world_size.x - 80, shore_y - 60, 120))
+	for i in 3:
+		spawn_resource("snow_drift", _point_near(spawn_point, 90, 200))
+
+	# Berry bushes near the forest edge
+	for i in 9:
+		spawn_resource("berry_bush", _rand_point(100, 400, world_size.x - 100, 560))
+	spawn_resource("berry_bush", _point_near(spawn_point, 280, 380))
+	spawn_resource("berry_bush", _point_near(spawn_point, 300, 420))
+
+
+func spawn_resource(kind: String, pos: Vector2, amount: int = 1):
+	var r = ResourceNodeScript.new()
+	r.main = self
+	r.kind = kind
+	r.amount = amount
+	r.position = pos
+	world.add_child(r)
+	return r
+
+
+func spawn_meat(pos: Vector2, amount: int) -> void:
+	spawn_resource("meat", pos, amount)
+
+
+# ---------- Day / night ----------
+
+func _process(delta: float) -> void:
+	if game_over or sleeping:
+		return
+	var prev := time_of_day
+	time_of_day += delta / DAY_LENGTH
+	if time_of_day >= 1.0:
+		time_of_day -= 1.0
+		day += 1
+	if _crossed(prev, time_of_day, DUSK_START):
+		hud.show_message("The sun is setting. Get to your fire or igloo.", 5.0)
+	if _crossed(prev, time_of_day, NIGHT_START):
+		_on_nightfall()
+	if _crossed(prev, time_of_day, MORNING):
+		_on_morning()
+	_update_lighting()
+
+
+func _crossed(a: float, b: float, mark: float) -> bool:
+	if b >= a:
+		return a < mark and b >= mark
+	return a < mark or b >= mark  # wrapped past midnight
+
+
+func get_night_factor() -> float:
+	var t := time_of_day
+	if t >= MORNING and t < DUSK_START:
+		return 0.0
+	if t >= DUSK_START and t < NIGHT_START:
+		return (t - DUSK_START) / (NIGHT_START - DUSK_START)
+	if t >= DAWN_START and t < MORNING:
+		return 1.0 - (t - DAWN_START) / (MORNING - DAWN_START)
+	return 1.0
+
+
+func is_night() -> bool:
+	return get_night_factor() >= 0.5
+
+
+func phase_name() -> String:
+	var t := time_of_day
+	if t >= MORNING and t < DUSK_START:
+		return "Day"
+	if t >= DUSK_START and t < NIGHT_START:
+		return "Dusk"
+	if t >= DAWN_START and t < MORNING:
+		return "Dawn"
+	return "Night"
+
+
+func clock_text() -> String:
+	var mins := int(time_of_day * 24.0 * 60.0)
+	return "%02d:%02d" % [int(mins / 60.0), mins % 60]
+
+
+func _update_lighting() -> void:
+	var nf := get_night_factor()
+	var day_col := Color(1, 1, 1)
+	var dusk_col := Color(0.95, 0.72, 0.62)
+	var night_col := Color(0.11, 0.13, 0.26)
+	var c := day_col.lerp(dusk_col, minf(nf * 2.0, 1.0))
+	c = c.lerp(night_col, maxf((nf - 0.5) * 2.0, 0.0))
+	canvas_mod.color = c
+
+
+func _on_nightfall() -> void:
+	for h in get_tree().get_nodes_in_group("hare"):
+		h.queue_free()
+	var count := mini(day + 1, MAX_WOLVES)
+	for i in count:
+		var w = WolfScript.new()
+		w.main = self
+		var a := rng.randf() * TAU
+		var p: Vector2 = player.position + Vector2(cos(a), sin(a)) * rng.randf_range(550, 750)
+		p.x = clampf(p.x, 30, world_size.x - 30)
+		p.y = clampf(p.y, 30, shore_y - 20)
+		w.position = p
+		world.add_child(w)
+	hud.show_message("Night falls. Wolves howl in the distance...", 5.0)
+
+
+func _on_morning() -> void:
+	for w in get_tree().get_nodes_in_group("wolf"):
+		w.leave()
+	for n in get_tree().get_nodes_in_group("daily"):
+		n.new_day()
+	_spawn_hares()
+	if day > WIN_DAYS and not endless:
+		game_over = true
+		won = true
+		hud.show_end(true, "You survived %d nights in the Arctic." % WIN_DAYS)
+		return
+	if day > 1:
+		hud.show_message("Day %d. You made it through the night!" % day, 5.0)
+
+
+func _spawn_hares() -> void:
+	var have := get_tree().get_nodes_in_group("hare").size()
+	for i in maxi(HARES_PER_DAY - have, 0):
+		var h = HareScript.new()
+		h.main = self
+		h.position = _away_from_spawn(150, 450, world_size.x - 150, shore_y - 80, 250)
+		world.add_child(h)
+
+
+# ---------- Queries used by player and wolves ----------
+
+func make_light_texture() -> Texture2D:
+	if _light_tex:
+		return _light_tex
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.width = 256
+	t.height = 256
+	t.fill = GradientTexture2D.FILL_RADIAL
+	t.fill_from = Vector2(0.5, 0.5)
+	t.fill_to = Vector2(1.0, 0.5)
+	_light_tex = t
+	return t
+
+
+func get_fire_heat(pos: Vector2) -> float:
+	var best := 0.0
+	for f in get_tree().get_nodes_in_group("fire"):
+		best = maxf(best, f.heat_at(pos))
+	return best
+
+
+func get_nearby_fire(pos: Vector2, max_dist: float):
+	var best = null
+	var bd := max_dist
+	for f in get_tree().get_nodes_in_group("fire"):
+		if f.is_lit():
+			var d := pos.distance_to(f.position)
+			if d < bd:
+				bd = d
+				best = f
+	return best
+
+
+func get_igloo_at(pos: Vector2):
+	for ig in get_tree().get_nodes_in_group("igloo"):
+		if ig.is_complete() and ig.contains(pos):
+			return ig
+	return null
+
+
+## True when the player is somewhere wolves won't follow (firelight or a finished igloo).
+func is_safe_spot(pos: Vector2) -> bool:
+	return fear_push(pos) != Vector2.ZERO
+
+
+## If pos is inside a place wolves fear, returns the direction out of it.
+func fear_push(pos: Vector2) -> Vector2:
+	for f in get_tree().get_nodes_in_group("fire"):
+		if f.is_lit() and pos.distance_to(f.position) < f.fear_radius():
+			return (pos - f.position).normalized()
+	for ig in get_tree().get_nodes_in_group("igloo"):
+		if ig.is_complete() and pos.distance_to(ig.position) < ig.radius() + 22.0:
+			return (pos - ig.position).normalized()
+	return Vector2.ZERO
+
+
+# ---------- Crafting ----------
+
+func try_craft(which: int) -> void:
+	var inv: Dictionary = player.inventory
+	var place: Vector2 = player.position + player.facing * 22.0
+	place.x = clampf(place.x, 30, world_size.x - 30)
+	place.y = clampf(place.y, 30, shore_y + 40)
+	if which == 1:
+		if inv["sticks"] < 3 or inv["flint"] < 1 or inv["stone"] < 1:
+			hud.show_message("A campfire needs 3 sticks and 1 flint, plus a stone to strike it with.")
+			return
+		for f in get_tree().get_nodes_in_group("fire"):
+			if f.position.distance_to(place) < 40:
+				hud.show_message("There's already a fire here.")
+				return
+		inv["sticks"] -= 3
+		inv["flint"] -= 1
+		var fire = FireScript.new()
+		fire.main = self
+		fire.position = place
+		world.add_child(fire)
+		hud.show_message("You strike flint against stone... the tinder catches!\nFeed the fire with sticks (E) or it will burn out.", 6.0)
+	elif which == 2:
+		var site: Vector2 = player.position + player.facing * 50.0
+		site.x = clampf(site.x, 50, world_size.x - 50)
+		site.y = clampf(site.y, 50, shore_y)
+		for ig in get_tree().get_nodes_in_group("igloo"):
+			if ig.position.distance_to(site) < 110:
+				hud.show_message("Too close to another igloo.")
+				return
+		var igloo = IglooScript.new()
+		igloo.main = self
+		igloo.position = site
+		world.add_child(igloo)
+		hud.show_message("Igloo marked. Cut snow blocks from snow drifts,\nthen hold E at the igloo to place them (0/%d)." % igloo.blocks_needed(), 6.0)
+	hud.set_craft_open(false)
+
+
+# ---------- Sleep ----------
+
+func try_sleep() -> void:
+	if get_igloo_at(player.position) == null:
+		hud.show_message("You can only sleep inside a finished igloo.")
+		return
+	if not (time_of_day >= 0.62 or time_of_day < DAWN_START):
+		hud.show_message("It's too early to sleep. Use the daylight!")
+		return
+	sleeping = true
+	hud.play_sleep(_finish_sleep)
+
+
+func _finish_sleep() -> void:
+	var had_fire := get_fire_heat(player.position) > 0.0
+	var t := time_of_day
+	var skipped := (MORNING - t) if t < MORNING else (1.0 - t + MORNING)
+	if t >= MORNING:
+		day += 1
+	time_of_day = MORNING
+	for f in get_tree().get_nodes_in_group("fire"):
+		f.burn(skipped * DAY_LENGTH * 0.5)
+	for w in get_tree().get_nodes_in_group("wolf"):
+		w.queue_free()
+	var sleep_msg: String = player.apply_sleep(had_fire)
+	sleeping = false
+	_update_lighting()
+	if game_over:
+		return
+	_on_morning()
+	if not game_over:
+		hud.show_message("Day %d. %s" % [day, sleep_msg], 6.0)
+
+
+# ---------- End of game ----------
+
+func on_player_died(cause: String) -> void:
+	if game_over:
+		return
+	game_over = true
+	hud.show_end(false, "You died from %s on day %d." % [cause, day])
+
+
+func continue_endless() -> void:
+	endless = true
+	game_over = false
+	hud.hide_end()
+	hud.show_message("Endless mode. How long can you last?", 4.0)

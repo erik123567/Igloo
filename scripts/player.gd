@@ -38,8 +38,9 @@ var inventory := {
 	"sticks": 0, "flint": 0, "stone": 0, "snow_block": 0,
 	"berries": 0, "raw_meat": 0, "cooked_meat": 0,
 	"logs": 0, "arrows": 0, "torch": 0, "hide": 0, "bone": 0, "iron": 0,
+	"raw_fish": 0, "cooked_fish": 0, "jerky": 0, "radio_part": 0,
 }
-var tools := {"axe": 0, "spear": 0, "bow": 0}   # 0 = don't have it, 1 stone, 2 bone, 3 iron
+var tools := {"axe": 0, "spear": 0, "bow": 0, "rod": 0}   # 0 = don't have it, 1 stone, 2 bone, 3 iron
 var gear := {"mittens": false, "boots": false, "coat": false}
 var weapon := "hands"        # "hands", "spear" or "bow"
 var torch_time := 0.0        # seconds left on the torch you're holding
@@ -239,7 +240,10 @@ func _handle_actions() -> void:
 	if main.hud.craft_open:
 		main.hud.handle_craft_keys()
 		return
-	if target != null and _action_cd <= 0.0:
+	_update_fishing(get_process_delta_time())
+	if target == null and Input.is_action_just_pressed("interact") and (fishing or can_fish()):
+		_fish_action()
+	elif target != null and _action_cd <= 0.0:
 		if Input.is_action_just_pressed("interact"):
 			_use_target()
 		elif Input.is_action_pressed("interact") and target.can_interact(self):
@@ -333,40 +337,101 @@ func _nearest_attackable(reach: float):
 	return best
 
 
+## Food you can eat: item, hunger, warmth, energy, health, message. Best first.
+const FOODS := [
+	["cooked_meat", 35.0, 6.0, 10.0, 0.0, "You eat cooked meat. Warm and filling."],
+	["cooked_fish", 30.0, 4.0, 8.0, 0.0, "You eat grilled fish. Delicious."],
+	["jerky", 22.0, 0.0, 6.0, 0.0, "You chew on some jerky."],
+	["berries", 7.0, 0.0, 0.0, 0.0, "You eat a handful of berries."],
+	["raw_fish", 10.0, 0.0, 0.0, -4.0, "You eat raw fish... not great. Cook it next time (C at a fire)."],
+	["raw_meat", 15.0, 0.0, 0.0, -6.0, "You eat raw meat... your stomach churns. Cook it next time (C at a fire)."],
+]
+
+
 func _eat() -> void:
-	if inventory["cooked_meat"] > 0:
-		inventory["cooked_meat"] -= 1
-		hunger = minf(hunger + 35.0, 100.0)
-		temp = minf(temp + 6.0, 100.0)
-		energy = minf(energy + 10.0, 100.0)
-		say("You eat cooked meat. Warm and filling.")
-		main.audio.play("eat")
-	elif inventory["berries"] > 0:
-		inventory["berries"] -= 1
-		hunger = minf(hunger + 7.0, 100.0)
-		say("You eat a handful of berries.")
-		main.audio.play("eat")
-	elif inventory["raw_meat"] > 0:
-		inventory["raw_meat"] -= 1
-		hunger = minf(hunger + 15.0, 100.0)
-		main.audio.play("eat")
-		take_damage(6.0, "food poisoning")
-		say("You eat raw meat... your stomach churns. Cook it next time (C at a fire).")
-	else:
-		say("You have nothing to eat. Pick berries or hunt hares (Space).")
+	for f in FOODS:
+		if inventory[f[0]] > 0:
+			inventory[f[0]] -= 1
+			hunger = minf(hunger + f[1], 100.0)
+			temp = minf(temp + f[2], 100.0)
+			energy = minf(energy + f[3], 100.0)
+			main.audio.play("eat")
+			if f[4] < 0.0:
+				take_damage(-f[4], "food poisoning")
+			say(f[5])
+			return
+	say("You have nothing to eat. Pick berries, hunt hares (Space) or fish through the ice.")
 
 
 func _cook() -> void:
-	if inventory["raw_meat"] <= 0:
-		say("You have no raw meat. Hunt hares with Space.")
+	var raw := ""
+	for item in ["raw_meat", "raw_fish"]:
+		if inventory[item] > 0:
+			raw = item
+			break
+	if raw == "":
+		say("You have nothing raw to cook. Hunt hares with Space, or fish.")
 		return
 	if main.get_nearby_fire(position, 60.0) == null:
 		say("Stand next to a burning fire to cook.")
 		return
-	inventory["raw_meat"] -= 1
-	inventory["cooked_meat"] += 1
-	main.hud.show_toast("Cooked 1 meat")
+	inventory[raw] -= 1
+	var cooked := "cooked_meat" if raw == "raw_meat" else "cooked_fish"
+	inventory[cooked] += 1
+	main.hud.show_toast("Cooked 1 %s" % ("meat" if raw == "raw_meat" else "fish"))
 	main.audio.play("ignite", null, -8.0)
+
+
+# ---------- Fishing ----------
+
+var fishing := false
+var _fish_wait := 0.0
+var _bite := 0.0
+
+
+func can_fish() -> bool:
+	return int(tools["rod"]) > 0 and main.on_ice(position)
+
+
+func fishing_prompt() -> String:
+	if fishing:
+		return "BITE! Press E!" if _bite > 0.0 else "Fishing... wait for a bite (move to stop)"
+	if can_fish():
+		return "[E] Fish through the ice"
+	return ""
+
+
+func _update_fishing(delta: float) -> void:
+	if not fishing:
+		return
+	if is_moving or not can_fish():
+		fishing = false
+		return
+	if _bite > 0.0:
+		_bite -= delta
+		if _bite <= 0.0:
+			say("It got away...")
+			_fish_wait = randf_range(4.0, 9.0)
+	else:
+		_fish_wait -= delta
+		if _fish_wait <= 0.0:
+			_bite = 1.3
+			main.audio.play("squeak", null, -8.0, 0.0, 0.5)
+			main.puff(position + facing * 16.0, Color(0.7, 0.85, 1.0), 6, 30.0)
+
+
+func _fish_action() -> void:
+	if not fishing:
+		fishing = true
+		_bite = 0.0
+		_fish_wait = randf_range(4.0, 9.0)
+		main.audio.play("gather", null, -6.0)
+		say("You cut a hole in the ice and drop your line.")
+	elif _bite > 0.0:
+		_bite = 0.0
+		_fish_wait = randf_range(4.0, 9.0)
+		add_item("raw_fish", 2 if randf() < 0.25 else 1)
+		main.puff(position + facing * 16.0, Color(0.8, 0.9, 1.0), 10, 50.0)
 
 
 # ---------- Called by other scripts ----------
@@ -455,6 +520,14 @@ func _draw() -> void:
 	if not behind:
 		_draw_held()
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	if fishing:
+		var bob := facing * 18.0 + Vector2(0, 2)
+		draw_set_transform(bob, 0, Vector2(1, 0.45))
+		draw_circle(Vector2.ZERO, 6, Color(0.1, 0.2, 0.3, 0.8))
+		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+		var dip := 2.0 if _bite > 0.0 else 0.0
+		draw_line(Vector2(6, -8), bob + Vector2(0, -1 + dip), Color(0.9, 0.9, 0.9, 0.8), 0.6)
+		draw_circle(bob + Vector2(0, -1 + dip), 1.6, Color(1, 0.3, 0.2))
 	if _swing > 0.0:
 		var a := facing.angle()
 		draw_arc(facing * 10.0 + Vector2(0, -5), 12, a - 1.0, a + 1.0, 10, Color(1, 1, 1, 0.9), 2.0)

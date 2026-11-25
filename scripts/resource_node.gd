@@ -14,6 +14,11 @@ const TEX := {
 	"iron_rock_empty": preload("res://art/iron_rock_empty.png"),
 	"hide": preload("res://art/hide.png"),
 	"bone": preload("res://art/bone.png"),
+	"crate": preload("res://art/crate.png"),
+	"crate_empty": preload("res://art/crate_open.png"),
+	"raw_fish": preload("res://art/fish.png"),
+	"jerky": preload("res://art/jerky.png"),
+	"radio_part": preload("res://art/radio_part.png"),
 }
 
 var main
@@ -39,6 +44,10 @@ func _ready() -> void:
 			interact_radius = 16.0
 		"loot":
 			add_to_group("loot")
+		"crate":
+			uses = 1
+			interact_radius = 10.0
+			add_to_group("crate")
 		"snow_drift":
 			uses = -1
 			interact_radius = 14.0
@@ -67,6 +76,8 @@ func get_prompt(_player) -> String:
 			return "[E] Take raw meat"
 		"iron_rock":
 			return "[E] Break off iron ore" if uses > 0 else "No iron left in this rock"
+		"crate":
+			return "[E] Search the old crate" if uses > 0 else "An empty crate"
 		"loot":
 			var parts := []
 			for item in loot:
@@ -119,6 +130,17 @@ func interact(player) -> void:
 			for item in loot:
 				player.add_item(item, int(loot[item]))
 			queue_free()
+		"crate":
+			uses = 0
+			var found := []
+			for item in loot:
+				player.add_item(item, int(loot[item]))
+				found.append("%d %s" % [loot[item], main.hud.item_name(item).to_lower()])
+			main.audio.play("chime", null, -6.0, 0.0)
+			var msg := "You found: " + ", ".join(PackedStringArray(found))
+			if loot.has("radio_part"):
+				msg += "\nA radio part! Radio parts: %d/3." % player.inventory["radio_part"]
+			main.hud.show_message(msg, 6.0)
 	queue_redraw()
 
 
@@ -139,6 +161,8 @@ func _draw() -> void:
 		key = "flint_rock_empty"
 	elif kind == "iron_rock" and uses == 0:
 		key = "iron_rock_empty"
+	elif kind == "crate" and uses == 0:
+		key = "crate_empty"
 	elif kind == "berry_bush" and uses == 0:
 		key = "berry_bush_empty"
 	var tex: Texture2D = TEX[key]
@@ -155,7 +179,7 @@ func _draw_loot() -> void:
 	draw_circle(Vector2.ZERO, 10, Color(0, 0, 0, 0.12))
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	var x := -8.0
-	for item in ["hide", "raw_meat", "bone"]:
+	for item in ["hide", "raw_meat", "bone", "raw_fish", "jerky", "radio_part"]:
 		if loot.get(item, 0) > 0:
 			var tex: Texture2D = TEX["meat" if item == "raw_meat" else item]
 			draw_texture(tex, Vector2(x, -tex.get_size().y + 1))

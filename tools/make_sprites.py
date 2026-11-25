@@ -439,4 +439,155 @@ for cx in (1, 10):
     bnd.ellipse([cx - 1, 3, cx + 1, 5], fill=(236, 230, 210, 255))
 save(outline(bone), "bone")
 
+# ---------------- Base structures, food, loot sites ----------------
+WOOD, WOOD_D, WOOD_L = (122, 82, 46, 255), (88, 58, 32, 255), (150, 104, 62, 255)
+SNOWC = (242, 246, 252, 255)
+
+
+def canvas(w, h):
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    return img, ImageDraw.Draw(img)
+
+
+img, d = canvas(30, 20)
+d.rectangle([1, 4, 28, 8], fill=WOOD_L)
+d.line([(1, 8), (28, 8)], fill=WOOD_D)
+for x in (3, 25):
+    d.rectangle([x, 9, x + 2, 19], fill=WOOD)
+d.rectangle([8, 1, 13, 4], fill=(120, 122, 132, 255))
+d.line([(17, 3), (24, 1)], fill=(90, 90, 100, 255), width=2)
+d.rectangle([2, 3, 27, 3], fill=SNOWC)
+save(outline(img), "workbench")
+
+img, d = canvas(20, 16)
+d.rectangle([1, 5, 18, 15], fill=WOOD)
+d.rectangle([1, 2, 18, 6], fill=WOOD_L)
+d.line([(1, 6), (18, 6)], fill=WOOD_D)
+d.rectangle([8, 6, 11, 9], fill=(200, 170, 80, 255))
+d.rectangle([1, 1, 18, 2], fill=SNOWC)
+save(outline(img), "chest")
+
+
+def rack(full):
+    img, d = canvas(28, 24)
+    for x in (2, 24):
+        d.line([(x, 23), (x + 1, 2)], fill=WOOD, width=2)
+    d.line([(1, 4), (26, 4)], fill=WOOD_L, width=2)
+    d.line([(1, 11), (26, 11)], fill=WOOD_L, width=1)
+    if full:
+        for x in range(5, 23, 5):
+            d.rectangle([x, 5, x + 2, 10], fill=(150, 50, 50, 255))
+            d.rectangle([x, 12, x + 2, 16], fill=(120, 40, 40, 255))
+    return outline(img)
+
+
+save(rack(False), "rack")
+save(rack(True), "rack_full")
+
+img, d = canvas(14, 10)
+d.line([(2, 9), (7, 1)], fill=WOOD, width=1)
+d.line([(12, 9), (7, 1)], fill=WOOD, width=1)
+d.ellipse([3, 5, 11, 9], outline=(200, 190, 160, 255))
+save(outline(img), "snare")
+img2 = Image.open(os.path.join(OUT, "hare_0.png")).copy()
+caught = Image.new("RGBA", (16, 13), (0, 0, 0, 0))
+caught.alpha_composite(img2.rotate(90, expand=True).crop((0, 0, 13, 13)).resize((10, 10)), (3, 3))
+caught.alpha_composite(Image.open(os.path.join(OUT, "snare.png")), (0, 0))
+save(caught, "snare_caught")
+
+img, d = canvas(20, 22)
+for x in (1, 8, 15):
+    d.rectangle([x, 3, x + 3, 21], fill=WOOD)
+    d.polygon([(x, 3), (x + 1.5, 0), (x + 3, 3)], fill=WOOD_L)
+    d.rectangle([x, 3, x + 3, 4], fill=SNOWC)
+d.rectangle([0, 8, 19, 10], fill=WOOD_D)
+d.rectangle([0, 15, 19, 17], fill=WOOD_D)
+save(outline(img), "fence")
+
+
+def beacon(lit):
+    img, d = canvas(26, 40)
+    d.line([(4, 39), (13, 6)], fill=WOOD, width=2)
+    d.line([(22, 39), (13, 6)], fill=WOOD, width=2)
+    d.line([(7, 28), (19, 28)], fill=WOOD_L, width=2)
+    d.line([(10, 18), (16, 18)], fill=WOOD_L, width=2)
+    d.rectangle([9, 30, 17, 38], fill=(80, 84, 96, 255))
+    d.rectangle([11, 32, 15, 34], fill=(120, 220, 140, 255) if lit else (60, 70, 60, 255))
+    d.line([(13, 6), (13, 0)], fill=(160, 160, 170, 255))
+    d.ellipse([10, 0, 16, 6], fill=(255, 90, 60, 255) if lit else (110, 60, 60, 255))
+    return outline(img)
+
+
+save(beacon(False), "beacon")
+save(beacon(True), "beacon_lit")
+
+img, d = canvas(14, 8)
+d.polygon([(1, 4), (4, 1), (10, 1), (13, 4), (10, 7), (4, 7)], fill=(150, 170, 190, 255))
+d.polygon([(10, 4), (13, 1), (13, 7)], fill=(130, 150, 170, 255))
+d.point((4, 3), fill=(20, 20, 30, 255))
+save(outline(img), "fish")
+
+img, d = canvas(12, 8)
+d.rectangle([1, 1, 10, 6], fill=(120, 60, 40, 255))
+d.line([(2, 3), (9, 3)], fill=(150, 80, 56, 255))
+save(outline(img), "jerky")
+
+img, d = canvas(12, 10)
+d.rectangle([1, 2, 10, 9], fill=(60, 100, 70, 255))
+d.rectangle([3, 4, 5, 6], fill=(220, 190, 80, 255))
+d.rectangle([7, 4, 8, 8], fill=(180, 180, 190, 255))
+d.line([(9, 2), (11, 0)], fill=(200, 200, 210, 255))
+save(outline(img), "radio_part")
+
+
+def crate(opened):
+    img, d = canvas(18, 14)
+    d.rectangle([1, 3, 16, 13], fill=WOOD)
+    d.line([(1, 3), (16, 13)], fill=WOOD_D)
+    d.line([(16, 3), (1, 13)], fill=WOOD_D)
+    if opened:
+        d.rectangle([1, 0, 16, 3], fill=WOOD_D)
+        d.rectangle([3, 4, 14, 6], fill=(40, 30, 20, 255))
+    else:
+        d.rectangle([1, 2, 16, 3], fill=WOOD_L)
+        d.rectangle([1, 1, 16, 1], fill=SNOWC)
+    return outline(img)
+
+
+save(crate(False), "crate")
+save(crate(True), "crate_open")
+
+# shipwreck frozen in ice
+img, d = canvas(110, 54)
+d.polygon([(4, 30), (96, 22), (108, 30), (96, 46), (16, 50)], fill=(86, 60, 40, 255))
+d.polygon([(4, 30), (96, 22), (108, 30), (100, 32), (10, 36)], fill=(110, 78, 50, 255))
+for x in range(14, 96, 8):
+    d.line([(x, 33), (x - 2, 48)], fill=(70, 48, 30, 255))
+d.line([(50, 28), (40, 0)], fill=(90, 64, 40, 255), width=3)
+d.line([(30, 10), (52, 6)], fill=(90, 64, 40, 255), width=2)
+d.polygon([(0, 46), (30, 40), (70, 44), (110, 40), (110, 54), (0, 54)], fill=(200, 222, 240, 255))
+d.polygon([(20, 28), (60, 24), (90, 22), (60, 27)], fill=SNOWC)
+save(outline(img), "shipwreck")
+
+# trapper's camp: tent and a cold fire pit
+img, d = canvas(56, 40)
+d.polygon([(4, 38), (26, 4), (48, 38)], fill=(150, 130, 90, 255))
+d.polygon([(26, 4), (48, 38), (40, 38)], fill=(120, 100, 70, 255))
+d.polygon([(20, 38), (26, 22), (32, 38)], fill=(50, 40, 30, 255))
+d.polygon([(14, 20), (26, 4), (36, 20), (26, 10)], fill=SNOWC)
+d.ellipse([44, 32, 55, 38], fill=(90, 90, 96, 255))
+save(outline(img), "camp")
+
+# weather station: mast and hut
+img, d = canvas(48, 64)
+d.rectangle([4, 40, 30, 62], fill=(150, 156, 166, 255))
+d.rectangle([4, 36, 30, 41], fill=SNOWC)
+d.rectangle([13, 50, 20, 62], fill=(80, 84, 96, 255))
+d.line([(38, 62), (38, 2)], fill=(120, 124, 134, 255), width=2)
+for y in range(8, 60, 8):
+    d.line([(35, y), (41, y + 4)], fill=(120, 124, 134, 255))
+d.ellipse([33, 0, 43, 6], fill=(200, 60, 50, 255))
+d.line([(26, 30), (44, 20)], fill=(120, 124, 134, 255))
+save(outline(img), "station")
+
 print("sprites written to", os.path.abspath(OUT))

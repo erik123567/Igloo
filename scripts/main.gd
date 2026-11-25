@@ -17,6 +17,7 @@ const WeatherScript = preload("res://scripts/weather.gd")
 const ArrowScript = preload("res://scripts/arrow.gd")
 const CabinScript = preload("res://scripts/cabin.gd")
 const BearScript = preload("res://scripts/bear.gd")
+const StructureScript = preload("res://scripts/structure.gd")
 
 # ---------- Tuning (change these numbers to balance the game) ----------
 const DAY_LENGTH := 360.0      # real seconds for one full day + night
@@ -31,22 +32,40 @@ const BEARS := 4
 const FOREST_PACKS := [Vector2(1500, 2400), Vector2(4300, 2000), Vector2(2900, 1900)]
 const MAX_WOLVES := 5
 
+# "bench": true means you must stand near a workbench to make it.
 const RECIPES := [
 	{"key": "campfire", "name": "Campfire", "cost": {"sticks": 3, "flint": 1}, "note": "struck with a stone"},
 	{"key": "igloo", "name": "Igloo shelter", "cost": {}, "note": "fill it with 6 snow blocks"},
 	{"key": "cabin", "name": "Cabin site", "cost": {}, "note": "your home base, build it up with logs"},
+	{"key": "workbench", "name": "Workbench", "cost": {"logs": 4, "stone": 2}, "note": "needed for advanced crafting"},
 	{"key": "torch", "name": "Torch", "cost": {"sticks": 3}, "note": "light and a little warmth, T to light"},
 	{"key": "axe", "tool": "axe", "tier": 1, "name": "Stone axe", "cost": {"sticks": 2, "stone": 1, "flint": 1}, "note": "chop trees for logs"},
-	{"key": "axe_bone", "tool": "axe", "tier": 2, "name": "Bone axe", "cost": {"bone": 2, "logs": 1, "sticks": 1}, "note": "chops twice as fast"},
-	{"key": "axe_iron", "tool": "axe", "tier": 3, "name": "Iron axe", "cost": {"iron": 2, "logs": 1}, "note": "chops three times as fast"},
+	{"key": "axe_bone", "tool": "axe", "tier": 2, "bench": true, "name": "Bone axe", "cost": {"bone": 2, "logs": 1, "sticks": 1}, "note": "chops twice as fast"},
+	{"key": "axe_iron", "tool": "axe", "tier": 3, "bench": true, "name": "Iron axe", "cost": {"iron": 2, "logs": 1}, "note": "chops three times as fast"},
 	{"key": "spear", "tool": "spear", "tier": 1, "name": "Stone spear", "cost": {"sticks": 3, "flint": 1}, "note": "2 damage, longer reach"},
-	{"key": "spear_bone", "tool": "spear", "tier": 2, "name": "Bone spear", "cost": {"bone": 2, "sticks": 2}, "note": "3 damage"},
-	{"key": "spear_iron", "tool": "spear", "tier": 3, "name": "Iron spear", "cost": {"iron": 2, "logs": 1}, "note": "4 damage"},
-	{"key": "bow", "tool": "bow", "tier": 1, "name": "Bow", "cost": {"logs": 1, "sticks": 2}, "note": "shoot arrows from afar"},
+	{"key": "spear_bone", "tool": "spear", "tier": 2, "bench": true, "name": "Bone spear", "cost": {"bone": 2, "sticks": 2}, "note": "3 damage"},
+	{"key": "spear_iron", "tool": "spear", "tier": 3, "bench": true, "name": "Iron spear", "cost": {"iron": 2, "logs": 1}, "note": "4 damage"},
+	{"key": "bow", "tool": "bow", "tier": 1, "bench": true, "name": "Bow", "cost": {"logs": 1, "sticks": 2}, "note": "shoot arrows from afar"},
 	{"key": "arrows", "name": "5 arrows", "cost": {"sticks": 2, "flint": 1}, "note": ""},
-	{"key": "mittens", "gear": "mittens", "name": "Fur mittens", "cost": {"hide": 2}, "note": "10% less cold"},
-	{"key": "boots", "gear": "boots", "name": "Fur boots", "cost": {"hide": 3}, "note": "10% less cold, walk a bit faster"},
-	{"key": "coat", "gear": "coat", "name": "Fur coat", "cost": {"hide": 5}, "note": "25% less cold"},
+	{"key": "rod", "tool": "rod", "tier": 1, "name": "Fishing rod", "cost": {"sticks": 3, "bone": 1}, "note": "fish through the ice (lake or sea ice)"},
+	{"key": "snare", "name": "Snare", "cost": {"sticks": 3, "hide": 1}, "note": "catches hares overnight"},
+	{"key": "fence", "name": "Fence", "cost": {"logs": 2}, "note": "wolves and bears can't get past"},
+	{"key": "chest", "bench": true, "name": "Storage chest", "cost": {"logs": 4}, "note": "food stored here doesn't spoil"},
+	{"key": "rack", "bench": true, "name": "Drying rack", "cost": {"logs": 2, "sticks": 4}, "note": "turns raw meat and fish into jerky"},
+	{"key": "mittens", "gear": "mittens", "bench": true, "name": "Fur mittens", "cost": {"hide": 2}, "note": "10% less cold"},
+	{"key": "boots", "gear": "boots", "bench": true, "name": "Fur boots", "cost": {"hide": 3}, "note": "10% less cold, walk a bit faster"},
+	{"key": "coat", "gear": "coat", "bench": true, "name": "Fur coat", "cost": {"hide": 5}, "note": "25% less cold"},
+	{"key": "beacon", "bench": true, "name": "Signal beacon", "cost": {"radio_part": 3, "iron": 4, "logs": 10}, "note": "call for rescue"},
+]
+
+# Places worth finding up north. Each has crates with rare loot, including a radio part.
+const SITES := [
+	{"name": "shipwreck", "art": "shipwreck", "pos": Vector2(4700, 330), "crates": [
+		{"radio_part": 1, "iron": 3, "arrows": 10}, {"hide": 3, "jerky": 4}]},
+	{"name": "trapper's camp", "art": "camp", "pos": Vector2(800, 1050), "crates": [
+		{"radio_part": 1, "bone": 4, "hide": 4}, {"arrows": 10, "torch": 3}]},
+	{"name": "weather station", "art": "station", "pos": Vector2(2900, 200), "crates": [
+		{"radio_part": 1, "iron": 4}, {"jerky": 3, "torch": 2}]},
 ]
 
 # Zones get colder the further north you go (smaller y = further north).
@@ -83,6 +102,8 @@ var map_nodes: Array = []        # trees and resources of the hand-made map, in 
 var _building := false
 var play_time := 0.0
 var stats := {"wolves": 0, "bears": 0, "hares": 0}
+var rescue_day := 0              # morning the rescue plane arrives (0 = beacon not on yet)
+var milestone_shown := false
 
 const SAVE_PATH := "user://igloo_save.json"
 ## How the scene should start after a reload: "title", "continue" or "new".
@@ -281,6 +302,20 @@ func _build_map() -> void:
 	for i in 16:
 		spawn_resource("iron_rock", _rand_point(150, 150, W - 150, 1650))
 
+	# Abandoned sites with loot crates
+	for site in SITES:
+		var deco := Sprite2D.new()
+		deco.texture = load("res://art/%s.png" % site["art"])
+		deco.centered = false
+		deco.offset = Vector2(-deco.texture.get_width() / 2.0, -deco.texture.get_height() + 4.0)
+		deco.position = site["pos"]
+		world.add_child(deco)
+		var i := 0
+		for loot in site["crates"]:
+			var crate = spawn_resource("crate", site["pos"] + Vector2(-50 + i * 100, 30))
+			crate.loot = loot.duplicate()
+			i += 1
+
 
 func zone_at(pos: Vector2) -> Dictionary:
 	for z in ZONES:
@@ -415,12 +450,19 @@ func _on_morning() -> void:
 		n.new_day()
 	_spawn_hares()
 	_spawn_predators()
-	if day > WIN_DAYS and not endless:
-		win()
+	if rescue_day > 0 and day >= rescue_day:
+		rescued()
 		return
+	if day > WIN_DAYS and not milestone_shown:
+		milestone_shown = true
+		hud.show_message("You've survived %d nights! To get home, find 3 radio parts up north\n(a shipwreck, a trapper's camp, a weather station) and build a signal beacon." % WIN_DAYS, 10.0)
+		save_game()
+		return
+	_spoil_food()
 	if day > 1:
 		save_game()
-		hud.show_message("Day %d. You made it through the night! (Game saved)" % day, 5.0)
+		if not game_over:
+			hud.show_message("Day %d. You made it through the night! (Game saved)" % day, 5.0)
 		audio.play("chime", null, -6.0, 0.0)
 
 
@@ -565,7 +607,7 @@ func fear_push(pos: Vector2) -> Vector2:
 	for f in get_tree().get_nodes_in_group("fire"):
 		if f.is_lit() and pos.distance_to(f.position) < f.fear_radius():
 			return (pos - f.position).normalized()
-	for group in ["igloo", "cabin"]:
+	for group in ["igloo", "cabin", "structure"]:
 		for sh in get_tree().get_nodes_in_group(group):
 			if sh.blocks_at(pos):
 				var away: Vector2 = pos - sh.center()
@@ -587,6 +629,8 @@ func get_recipes() -> Array:
 			continue
 		if r["key"] == "cabin" and get_home() != null:
 			continue
+		if r["key"] == "workbench" and near_workbench():
+			continue
 		out.append(r)
 	return out
 
@@ -602,6 +646,8 @@ func missing_for(r: Dictionary) -> String:
 			missing.append("%d %s" % [cost[item] - inv[item], hud.item_name(item).to_lower()])
 	if key == "campfire" and inv["stone"] < 1:
 		missing.append("a stone")
+	if r.get("bench", false) and not near_workbench():
+		missing.append("a workbench nearby")
 	if missing.is_empty():
 		return ""
 	return "need " + ", ".join(PackedStringArray(missing))
@@ -647,6 +693,19 @@ func craft(r: Dictionary) -> void:
 	var cost: Dictionary = r["cost"]
 	for item in cost:
 		player.inventory[item] -= cost[item]
+	if key in ["workbench", "chest", "rack", "snare", "fence", "beacon"]:
+		var st = StructureScript.new()
+		st.main = self
+		st.kind = key
+		st.position = player.position + player.facing * 26.0
+		world.add_child(st)
+		audio.play("place_block", st.position)
+		puff(st.position, Color(0.8, 0.7, 0.55), 8)
+		hud.show_toast("Built: %s" % r["name"])
+		if key == "beacon":
+			hud.show_message("Signal beacon built! Press E on it to start calling for rescue.", 6.0)
+		hud.set_craft_open(false)
+		return
 	match key:
 		"campfire":
 			var fire = FireScript.new()
@@ -671,6 +730,9 @@ func craft(r: Dictionary) -> void:
 		"axe", "axe_bone", "axe_iron":
 			player.tools["axe"] = int(r["tier"])
 			hud.show_message("%s made. Hold E at a tree to chop it for logs." % r["name"], 5.0)
+		"rod":
+			player.tools["rod"] = 1
+			hud.show_message("Fishing rod made. Stand on ice (the frozen lake up north, or the sea ice by the coast) and press E.", 6.0)
 		"spear", "spear_bone", "spear_iron", "bow":
 			var tool: String = r["tool"]
 			player.tools[tool] = int(r["tier"])
@@ -687,6 +749,21 @@ func craft(r: Dictionary) -> void:
 			hud.show_message("Torch made. Press T to light it.", 4.0)
 	audio.play("pickup", null, -4.0)
 	hud.set_craft_open(false)
+
+
+func near_workbench() -> bool:
+	for st in get_tree().get_nodes_in_group("structure"):
+		if st.kind == "workbench" and st.position.distance_to(player.position) < 140.0:
+			return true
+	return false
+
+
+## Frozen lake on the tundra, or the sea ice along the coast.
+func on_ice(pos: Vector2) -> bool:
+	if pos.y > shore_y + 8.0:
+		return true
+	var d := Vector2((pos.x - 3000.0) / 600.0, (pos.y - 1150.0) / 240.0)
+	return d.length() < 0.9
 
 
 func shoot_arrow(from: Vector2, dir: Vector2) -> void:
@@ -755,11 +832,43 @@ func on_player_died(cause: String) -> void:
 	hud.show_end(false, "You died from %s." % cause)
 
 
-func win() -> void:
+func rescued() -> void:
 	game_over = true
 	won = true
-	save_game()
-	hud.show_end(true, "You survived %d nights in the Arctic." % WIN_DAYS)
+	delete_save()
+	hud.show_end(true, "A plane spotted your beacon and landed on the ice.\nYou're going home!")
+
+
+## Half of the meat and fish you carry goes bad overnight. Jerky and chest food keep.
+func _spoil_food() -> void:
+	var lost := 0
+	for item in ["raw_meat", "cooked_meat", "raw_fish", "cooked_fish"]:
+		var n: int = player.inventory[item]
+		var bad := int(n / 2.0)
+		player.inventory[item] -= bad
+		lost += bad
+	if lost > 0:
+		hud.show_toast("%d pieces of meat and fish went bad overnight" % lost)
+
+
+## Which radio parts are still out there: the nearest unsearched site, for the HUD.
+func nearest_site_hint() -> String:
+	if rescue_day > 0 or player.inventory.get("radio_part", 0) >= 3:
+		return ""
+	var best := ""
+	var bd := INF
+	for site in SITES:
+		var searched := true
+		for c in get_tree().get_nodes_in_group("crate"):
+			if c.uses > 0 and c.position.distance_to(site["pos"]) < 200.0 and c.loot.has("radio_part"):
+				searched = false
+		if searched:
+			continue
+		var d: float = player.position.distance_to(site["pos"])
+		if d < bd:
+			bd = d
+			best = "Rumor: a %s, %dm %s" % [site["name"], int(d / 10.0), hud.compass(site["pos"] - player.position)]
+	return best
 
 
 func continue_endless() -> void:
@@ -838,6 +947,10 @@ func save_game() -> void:
 	var home = get_home()
 	if home != null:
 		cabin = [home.position.x, home.position.y, home.level, home.paid, home.stove_fuel]
+	var structures := []
+	for st in get_tree().get_nodes_in_group("structure"):
+		structures.append({"kind": st.kind, "x": st.position.x, "y": st.position.y, "storage": st.storage,
+			"drying": st.drying, "jerky": st.ready_jerky, "caught": st.caught, "on": st.transmitting})
 	var loot := []
 	for l in get_tree().get_nodes_in_group("loot"):
 		if not l.is_queued_for_deletion():
@@ -845,6 +958,7 @@ func save_game() -> void:
 	var data := {
 		"version": 1,
 		"day": day, "time": time_of_day, "play_time": play_time, "endless": endless, "stats": stats,
+		"rescue_day": rescue_day, "milestone": milestone_shown, "structures": structures,
 		"player": {
 			"x": player.position.x, "y": player.position.y,
 			"temp": player.temp, "hunger": player.hunger, "energy": player.energy, "health": player.health,
@@ -866,6 +980,22 @@ func load_game(data: Dictionary) -> void:
 	time_of_day = float(data.get("time", MORNING))
 	play_time = float(data.get("play_time", 0.0))
 	endless = bool(data.get("endless", false))
+	rescue_day = int(data.get("rescue_day", 0))
+	milestone_shown = bool(data.get("milestone", false))
+	for sd in data.get("structures", []):
+		var st = StructureScript.new()
+		st.main = self
+		st.kind = str(sd["kind"])
+		st.position = Vector2(float(sd["x"]), float(sd["y"]))
+		var stor: Dictionary = sd.get("storage", {})
+		for k in stor:
+			st.storage[k] = int(stor[k])
+		for t in sd.get("drying", []):
+			st.drying.append(float(t))
+		st.ready_jerky = int(sd.get("jerky", 0))
+		st.caught = bool(sd.get("caught", false))
+		st.transmitting = bool(sd.get("on", false))
+		world.add_child(st)
 	var saved_stats: Dictionary = data.get("stats", {})
 	for k in saved_stats:
 		stats[k] = int(saved_stats[k])

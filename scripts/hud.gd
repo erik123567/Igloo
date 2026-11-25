@@ -7,6 +7,7 @@ const ITEM_NAMES := {
 	"berries": "Berries", "raw_meat": "Raw meat", "cooked_meat": "Cooked meat",
 	"logs": "Logs", "arrows": "Arrows", "torch": "Torches",
 	"hide": "Hides", "bone": "Bones", "iron": "Iron",
+	"raw_fish": "Raw fish", "cooked_fish": "Cooked fish", "jerky": "Jerky", "radio_part": "Radio parts",
 }
 
 const HELP_TEXT := """CONTROLS  (H to hide)
@@ -32,9 +33,13 @@ SURVIVE 3 NIGHTS
   them home to build your cabin.
 - North is colder: forest wolves,
   then polar bears on the tundra.
-- Hides and bones from animals and
-  iron from rusty northern rocks
-  make fur clothes and better tools."""
+- Hides, bones and iron make fur
+  clothes and better tools at a
+  workbench.
+- Food rots overnight. Dry it on a
+  rack or keep it in a chest.
+- Find 3 radio parts up north and
+  build a beacon to get rescued."""
 
 var main
 var player
@@ -132,8 +137,8 @@ func _ready() -> void:
 	_help.anchor_right = 1.0
 	_help.offset_left = -330
 	_help.offset_right = -12
-	_help.offset_top = 130
-	var help_label := _label(15, HORIZONTAL_ALIGNMENT_LEFT)
+	_help.offset_top = 110
+	var help_label := _label(13, HORIZONTAL_ALIGNMENT_LEFT)
 	help_label.text = HELP_TEXT
 	_help.add_child(help_label)
 	root.add_child(_help)
@@ -437,7 +442,7 @@ func _process(delta: float) -> void:
 	elif t != null and is_instance_valid(t):
 		_prompt.text = t.get_prompt(player)
 	else:
-		_prompt.text = ""
+		_prompt.text = player.fishing_prompt()
 
 	_status.text = _status_text()
 	var gear := "Holding: %s" % player.weapon.capitalize()
@@ -483,7 +488,17 @@ func _status_text() -> String:
 	var home = main.get_home()
 	if home != null and not home.contains(player.position):
 		var to: Vector2 = home.center() - player.position
-		lines.append("Home: %dm %s" % [int(to.length() / 10.0), _compass(to)])
+		lines.append("Home: %dm %s" % [int(to.length() / 10.0), compass(to)])
+	if main.milestone_shown or player.inventory.get("radio_part", 0) > 0:
+		if main.rescue_day > 0:
+			lines.append("Rescue arrives the morning of day %d" % main.rescue_day)
+		elif player.inventory.get("radio_part", 0) >= 3:
+			lines.append("Goal: build a signal beacon at a workbench")
+		else:
+			lines.append("Goal: radio parts %d/3" % player.inventory.get("radio_part", 0))
+		var hint: String = main.nearest_site_hint()
+		if hint != "":
+			lines.append(hint)
 	var sh = main.get_shelter_at(player.position)
 	if main.weather.is_storm() and (sh == null or not sh.storm_proof()):
 		lines.append("Storm! Get inside an igloo.")
@@ -496,7 +511,7 @@ func _status_text() -> String:
 	return "\n".join(PackedStringArray(lines))
 
 
-func _compass(v: Vector2) -> String:
+func compass(v: Vector2) -> String:
 	var names := ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"]
 	var idx := int(round(v.angle() / (TAU / 8.0))) % 8
 	if idx < 0:

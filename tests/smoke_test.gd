@@ -39,6 +39,10 @@ func _process(_delta: float) -> bool:
 		15:
 			main.try_craft(1)
 		17:
+			p.inventory["logs"] = 4
+			p.inventory["stone"] = 2
+			main.try_craft(4)
+			assert(main.near_workbench())
 			p.inventory["sticks"] = 30
 			p.inventory["flint"] = 6
 			p.inventory["stone"] = 3
@@ -139,6 +143,72 @@ func _process(_delta: float) -> bool:
 			assert(not is_instance_valid(bear) or bear.is_queued_for_deletion())
 		200:
 			main.try_sleep()
+		300:
+			# fishing on the sea ice
+			p.inventory["sticks"] = 10
+			p.inventory["bone"] = 2
+			for r in main.get_recipes():
+				if r["key"] == "rod":
+					main.craft(r)
+			assert(p.tools["rod"] == 1)
+			p.position = Vector2(3000, main.shore_y + 40)
+			assert(p.can_fish())
+			p._fish_action()
+			assert(p.fishing)
+			p._fish_wait = 0.01
+		305:
+			p._fish_action()
+			print("fish caught: ", p.inventory["raw_fish"])
+			assert(p.inventory["raw_fish"] >= 1)
+		310:
+			# base upgrades next to a new workbench
+			p.position = Vector2(3000, 3900)
+			p.inventory["logs"] = 30
+			p.inventory["stone"] = 6
+			p.inventory["sticks"] = 20
+			p.inventory["hide"] = 2
+			p.inventory["raw_meat"] = 3
+			for key in ["workbench", "chest", "rack", "snare", "fence"]:
+				for r in main.get_recipes():
+					if r["key"] == key:
+						main.craft(r)
+						p.position += Vector2(40, 0)
+			var kinds := []
+			for st in get_nodes_in_group("structure"):
+				kinds.append(st.kind)
+			print("structures: ", kinds)
+			assert(kinds.has("chest") and kinds.has("rack") and kinds.has("snare") and kinds.has("fence"))
+			for st in get_nodes_in_group("structure"):
+				if st.kind == "rack":
+					st.interact(p)
+					st.drying = [0.01, 0.01, 0.01, 0.01]
+				if st.kind == "chest":
+					st.interact(p)
+					assert(p.inventory["logs"] == 0 and st.storage["logs"] > 0)
+					st.interact(p)
+					assert(p.inventory["logs"] > 0)
+				if st.kind == "snare":
+					st.caught = true
+					st.interact(p)
+				if st.kind == "fence":
+					assert(main.fear_push(st.position) != Vector2.ZERO)
+		320:
+			for st in get_nodes_in_group("structure"):
+				if st.kind == "rack":
+					print("jerky ready: ", st.ready_jerky)
+					assert(st.ready_jerky >= 3)
+					st.interact(p)
+			assert(p.inventory["jerky"] >= 3)
+			# loot crates up north
+			var parts := 0
+			for c in get_nodes_in_group("crate"):
+				c.interact(p)
+			print("radio parts from crates: ", p.inventory["radio_part"])
+			assert(p.inventory["radio_part"] == 3)
+			# spoilage
+			p.inventory["raw_meat"] = 4
+			main._spoil_food()
+			assert(p.inventory["raw_meat"] == 2)
 		450:
 			# save, wipe some state, load it back
 			main.save_game()
@@ -154,10 +224,25 @@ func _process(_delta: float) -> bool:
 			assert(gone > 0)
 			assert(p.inventory["logs"] > 0)
 		460:
-			p.take_damage(999.0, "a test")
-			assert(main.game_over)
+			# build the beacon, switch it on, and get rescued
+			p.inventory["iron"] = 4
+			p.inventory["logs"] = 10
+			p.position = Vector2(3000, 3900)
+			for r in main.get_recipes():
+				if r["key"] == "beacon":
+					main.craft(r)
+			var beacon = null
+			for st in get_nodes_in_group("structure"):
+				if st.kind == "beacon":
+					beacon = st
+			assert(beacon != null)
+			beacon.interact(p)
+			assert(main.rescue_day == main.day + 2)
+			main.day = main.rescue_day
+			main._on_morning()
+			assert(main.won and main.game_over)
+			print("rescued on day ", main.day)
 		500:
-			assert(main.day == 2)
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())
 			return true
 	return false

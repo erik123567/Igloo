@@ -8,6 +8,7 @@ const ITEM_NAMES := {
 	"logs": "Logs", "arrows": "Arrows", "torch": "Torches",
 	"hide": "Hides", "bone": "Bones", "iron": "Iron",
 	"raw_fish": "Raw fish", "cooked_fish": "Cooked fish", "jerky": "Jerky", "radio_part": "Radio parts",
+	"white_fur": "White fur", "steel": "Steel",
 }
 
 const HELP_TEXT := """CONTROLS  (H to hide)
@@ -22,7 +23,7 @@ Eat: Q    Cook at a fire: C
 Sleep in a finished igloo: Z
 Pause: Esc
 
-SURVIVE 3 NIGHTS
+SURVIVE, GEAR UP, PUSH NORTH
 - Sticks, flint, stone: make a fire.
 - Storms hit without much warning.
   Build an igloo (6 snow blocks)
@@ -31,15 +32,22 @@ SURVIVE 3 NIGHTS
   help a little, igloos fully.
 - Axe: chop trees for logs. Haul
   them home to build your cabin.
-- North is colder: forest wolves,
-  then polar bears on the tundra.
+- Each zone north is colder and
+  deadlier: wolves, then dire
+  wolves and polar bears, then
+  frost wolves and great white
+  bears in the far north.
 - Hides, bones and iron make fur
   clothes and better tools at a
   workbench.
 - Food rots overnight. Dry it on a
   rack or keep it in a chest.
-- Find 3 radio parts up north and
-  build a beacon to get rescued."""
+- Wrecks up north hold steel and
+  white fur for the best gear.
+- Skills grow as you do things:
+  hunting = more damage, toughness
+  = more health, survival = less
+  cold, gathering = less tiring."""
 
 var main
 var player
@@ -55,6 +63,7 @@ var _toast: Label
 var _toast_time := 0.0
 var _status: Label
 var _help: PanelContainer
+var _skills: Label
 var _craft: PanelContainer
 var _craft_label: Label
 var _fade: ColorRect
@@ -94,6 +103,8 @@ func _ready() -> void:
 	_add_bar(vb, "Hunger", Color(0.85, 0.7, 0.25))
 	_add_bar(vb, "Energy", Color(0.35, 0.75, 0.95))
 	_add_bar(vb, "Health", Color(0.85, 0.2, 0.25))
+	_skills = _label(13, HORIZONTAL_ALIGNMENT_LEFT)
+	vb.add_child(_skills)
 
 	_clock = _label(22, HORIZONTAL_ALIGNMENT_RIGHT)
 	_wide(_clock, 0.0, 12.0, 50.0)
@@ -426,6 +437,13 @@ func _process(delta: float) -> void:
 	_bars["Health"].value = player.health
 
 	_clock.text = "Day %d   %s   %s   |   %s   |   %s" % [main.day, main.clock_text(), main.phase_name(), main.weather.label(), main.zone_at(player.position)["name"]]
+	_clock.text += "  " + "!".repeat(int(main.zone_at(player.position)["danger"]))
+	var sk := []
+	for k in ["hunting", "toughness", "survival", "gathering"]:
+		var lv: int = player.skill(k)
+		var pct := 100 if lv >= player.MAX_SKILL else int(100.0 * player.skills[k]["xp"] / player.xp_needed(lv))
+		sk.append("%s %d (%d%%)" % [k.capitalize(), lv, pct])
+	_skills.text = "Skills  " + "  ".join(PackedStringArray(sk.slice(0, 2))) + "\n        " + "  ".join(PackedStringArray(sk.slice(2)))
 
 	var parts := []
 	for key in ITEM_NAMES:
@@ -448,17 +466,19 @@ func _process(delta: float) -> void:
 	var gear := "Holding: %s" % player.weapon.capitalize()
 	if player.weapon == "bow":
 		gear += " (%d arrows)" % player.inventory["arrows"]
-	var tiers := ["", "Stone", "Bone", "Iron"]
+	var tiers := ["", "Stone", "Bone", "Iron", "Steel"]
 	if player.weapon == "spear":
 		gear = "Holding: %s spear" % tiers[int(player.tools["spear"])]
 	if int(player.tools["axe"]) > 0:
 		gear += "   %s axe" % tiers[int(player.tools["axe"])]
 	var worn := []
-	for g in ["mittens", "boots", "coat"]:
-		if player.gear[g]:
-			worn.append(g)
+	for g in ["mittens", "boots", "coat", "polar_coat"]:
+		if player.gear[g] and not (g == "coat" and player.gear["polar_coat"]):
+			worn.append(g.replace("_", " "))
 	if not worn.is_empty():
 		gear += "   Fur %s (-%d%% cold)" % [", ".join(PackedStringArray(worn)), int(round((1.0 - player.gear_cold_factor()) * 100.0))]
+	if player.armor > 0:
+		gear += "   %s armor" % ["", "Bone", "Iron"][player.armor]
 	if player.torch_time > 0.0:
 		gear += "   Torch: %ds" % int(player.torch_time)
 	_gear.text = gear
@@ -489,13 +509,7 @@ func _status_text() -> String:
 	if home != null and not home.contains(player.position):
 		var to: Vector2 = home.center() - player.position
 		lines.append("Home: %dm %s" % [int(to.length() / 10.0), compass(to)])
-	if main.milestone_shown or player.inventory.get("radio_part", 0) > 0:
-		if main.rescue_day > 0:
-			lines.append("Rescue arrives the morning of day %d" % main.rescue_day)
-		elif player.inventory.get("radio_part", 0) >= 3:
-			lines.append("Goal: build a signal beacon at a workbench")
-		else:
-			lines.append("Goal: radio parts %d/3" % player.inventory.get("radio_part", 0))
+	if main.milestone_shown:
 		var hint: String = main.nearest_site_hint()
 		if hint != "":
 			lines.append(hint)

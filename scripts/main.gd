@@ -28,8 +28,14 @@ const DUSK_START := 0.68       # sun starts setting
 const NIGHT_START := 0.76      # full night, wolves come out
 const WIN_DAYS := 3            # survive this many nights to win
 const HARES_PER_DAY := 14
-const BEARS := 4
-const FOREST_PACKS := [Vector2(1500, 2400), Vector2(4300, 2000), Vector2(2900, 1900)]
+const BEARS := 4                 # polar bears on the tundra
+const GREAT_BEARS := 2           # great white bears in the far north
+## Wolf dens: where each pack lives, and what kind of wolves they are.
+const DENS := [
+	[Vector2(1500, 2400), "wolf"], [Vector2(4300, 2000), "wolf"], [Vector2(2900, 1900), "wolf"],
+	[Vector2(1600, 1150), "dire"], [Vector2(4500, 1050), "dire"],
+	[Vector2(1200, 350), "frost"], [Vector2(4100, 300), "frost"],
+]
 const MAX_WOLVES := 5
 
 # "bench": true means you must stand near a workbench to make it.
@@ -55,25 +61,29 @@ const RECIPES := [
 	{"key": "mittens", "gear": "mittens", "bench": true, "name": "Fur mittens", "cost": {"hide": 2}, "note": "10% less cold"},
 	{"key": "boots", "gear": "boots", "bench": true, "name": "Fur boots", "cost": {"hide": 3}, "note": "10% less cold, walk a bit faster"},
 	{"key": "coat", "gear": "coat", "bench": true, "name": "Fur coat", "cost": {"hide": 5}, "note": "25% less cold"},
-	{"key": "beacon", "bench": true, "name": "Signal beacon", "cost": {"radio_part": 3, "iron": 4, "logs": 10}, "note": "call for rescue"},
+	{"key": "polar_coat", "gear": "polar_coat", "needs_gear": "coat", "bench": true, "name": "Polar fur coat", "cost": {"white_fur": 4, "hide": 2}, "note": "40% less cold (replaces the fur coat)"},
+	{"key": "armor_bone", "armor": 1, "bench": true, "name": "Bone armor", "cost": {"bone": 6, "hide": 2}, "note": "take 20% less damage from animals"},
+	{"key": "armor_iron", "armor": 2, "bench": true, "name": "Iron armor", "cost": {"iron": 6, "hide": 2}, "note": "take 40% less damage from animals"},
+	{"key": "axe_steel", "tool": "axe", "tier": 4, "bench": true, "name": "Steel axe", "cost": {"steel": 2, "logs": 1}, "note": "chops four times as fast"},
+	{"key": "spear_steel", "tool": "spear", "tier": 4, "bench": true, "name": "Steel spear", "cost": {"steel": 2, "logs": 1}, "note": "5 damage"},
 ]
 
-# Places worth finding up north. Each has crates with rare loot, including a radio part.
+# Places worth finding up north. Their crates hold rare loot: steel, white fur, iron.
 const SITES := [
 	{"name": "shipwreck", "art": "shipwreck", "pos": Vector2(4700, 330), "crates": [
-		{"radio_part": 1, "iron": 3, "arrows": 10}, {"hide": 3, "jerky": 4}]},
+		{"steel": 2, "iron": 3, "arrows": 10}, {"hide": 3, "jerky": 4, "white_fur": 2}]},
 	{"name": "trapper's camp", "art": "camp", "pos": Vector2(800, 1050), "crates": [
-		{"radio_part": 1, "bone": 4, "hide": 4}, {"arrows": 10, "torch": 3}]},
+		{"bone": 6, "hide": 4, "iron": 2}, {"arrows": 10, "torch": 3, "steel": 1}]},
 	{"name": "weather station", "art": "station", "pos": Vector2(2900, 200), "crates": [
-		{"radio_part": 1, "iron": 4}, {"jerky": 3, "torch": 2}]},
+		{"steel": 3, "iron": 4}, {"jerky": 3, "torch": 2, "white_fur": 2}]},
 ]
 
 # Zones get colder the further north you go (smaller y = further north).
 const ZONES := [
-	{"name": "Coast", "from_y": 3200.0, "cold": 1.0},
-	{"name": "Boreal forest", "from_y": 1700.0, "cold": 1.1},
-	{"name": "Frozen tundra", "from_y": 600.0, "cold": 1.35},
-	{"name": "Far north", "from_y": -99999.0, "cold": 1.7},
+	{"name": "Coast", "from_y": 3200.0, "cold": 1.0, "danger": 1, "wolf": "wolf"},
+	{"name": "Boreal forest", "from_y": 1700.0, "cold": 1.15, "danger": 2, "wolf": "wolf"},
+	{"name": "Frozen tundra", "from_y": 600.0, "cold": 1.6, "danger": 3, "wolf": "dire"},
+	{"name": "Far north", "from_y": -99999.0, "cold": 2.3, "danger": 4, "wolf": "frost"},
 ]
 
 var world_size := Vector2(6000, 4500)
@@ -433,6 +443,7 @@ func _on_nightfall() -> void:
 	for i in count:
 		var w = WolfScript.new()
 		w.main = self
+		w.variant = zone_at(player.position)["wolf"]
 		var a := rng.randf() * TAU
 		var p: Vector2 = player.position + Vector2(cos(a), sin(a)) * rng.randf_range(550, 750)
 		p.x = clampf(p.x, 30, world_size.x - 30)
@@ -450,14 +461,9 @@ func _on_morning() -> void:
 		n.new_day()
 	_spawn_hares()
 	_spawn_predators()
-	if rescue_day > 0 and day >= rescue_day:
-		rescued()
-		return
 	if day > WIN_DAYS and not milestone_shown:
 		milestone_shown = true
-		hud.show_message("You've survived %d nights! To get home, find 3 radio parts up north\n(a shipwreck, a trapper's camp, a weather station) and build a signal beacon." % WIN_DAYS, 10.0)
-		save_game()
-		return
+		hud.show_message("You've survived %d nights! The real test lies north: deadlier animals,\nbrutal cold, and old wrecks with steel and rare furs. Gear up and skill up." % WIN_DAYS, 10.0)
 	_spoil_food()
 	if day > 1:
 		save_game()
@@ -475,29 +481,38 @@ func _spawn_hares() -> void:
 		world.add_child(h)
 
 
-## Polar bears in the north and wolf packs living in the forest, topped up every morning.
+## Bears up north and wolf packs at their dens, topped up every morning.
 func _spawn_predators() -> void:
-	var bears := get_tree().get_nodes_in_group("bear").size()
-	for i in maxi(BEARS - bears, 0):
-		var b = BearScript.new()
-		b.main = self
-		b.position = _away_from_player(rng.randf_range(100, world_size.x - 100), rng.randf_range(150, 1500))
-		b.home = b.position
-		world.add_child(b)
-	var residents := 0
+	var have := {"polar": 0, "great": 0}
+	for b in get_tree().get_nodes_in_group("bear"):
+		have[b.variant] += 1
+	for i in maxi(BEARS - have["polar"], 0):
+		_spawn_bear("polar", rng.randf_range(650, 1600))
+	for i in maxi(GREAT_BEARS - have["great"], 0):
+		_spawn_bear("great", rng.randf_range(100, 550))
+	var at_den := {}
 	for w in get_tree().get_nodes_in_group("wolf"):
 		if w.resident:
-			residents += 1
-	if residents >= FOREST_PACKS.size() * 2:
-		return
-	for den in FOREST_PACKS:
-		for i in 3:
+			at_den[w.home] = int(at_den.get(w.home, 0)) + 1
+	for den in DENS:
+		var spot: Vector2 = den[0]
+		for i in maxi(3 - int(at_den.get(spot, 0)), 0):
 			var w = WolfScript.new()
 			w.main = self
 			w.resident = true
-			w.home = den
-			w.position = _away_from_player(den.x + rng.randf_range(-80, 80), den.y + rng.randf_range(-80, 80))
+			w.variant = den[1]
+			w.home = spot
+			w.position = _away_from_player(spot.x + rng.randf_range(-80, 80), spot.y + rng.randf_range(-80, 80))
 			world.add_child(w)
+
+
+func _spawn_bear(kind: String, y: float) -> void:
+	var b = BearScript.new()
+	b.main = self
+	b.variant = kind
+	b.position = _away_from_player(rng.randf_range(100, world_size.x - 100), y)
+	b.home = b.position
+	world.add_child(b)
 
 
 func _away_from_player(x: float, y: float) -> Vector2:
@@ -627,6 +642,12 @@ func get_recipes() -> Array:
 				continue
 		if r.has("gear") and player.gear[r["gear"]]:
 			continue
+		if r.has("needs_gear") and not player.gear[r["needs_gear"]]:
+			continue
+		if r["key"] == "coat" and player.gear["polar_coat"]:
+			continue
+		if r.has("armor") and player.armor != int(r["armor"]) - 1:
+			continue
 		if r["key"] == "cabin" and get_home() != null:
 			continue
 		if r["key"] == "workbench" and near_workbench():
@@ -738,7 +759,17 @@ func craft(r: Dictionary) -> void:
 			player.tools[tool] = int(r["tier"])
 			player.weapon = tool
 			hud.show_message("%s made and in hand. F switches weapons." % r["name"], 5.0)
-		"mittens", "boots", "coat":
+		"armor_bone", "armor_iron":
+			player.armor = int(r["armor"])
+			hud.show_message("%s on. Animals hurt you less." % r["name"], 5.0)
+		"axe_steel":
+			player.tools["axe"] = 4
+			hud.show_message("Steel axe made. Trees don't stand a chance.", 5.0)
+		"spear_steel":
+			player.tools["spear"] = 4
+			player.weapon = "spear"
+			hud.show_message("Steel spear made and in hand.", 5.0)
+		"mittens", "boots", "coat", "polar_coat":
 			player.gear[key] = true
 			hud.show_message("%s on. You'll feel the cold a little less." % r["name"], 5.0)
 		"arrows":
@@ -832,13 +863,6 @@ func on_player_died(cause: String) -> void:
 	hud.show_end(false, "You died from %s." % cause)
 
 
-func rescued() -> void:
-	game_over = true
-	won = true
-	delete_save()
-	hud.show_end(true, "A plane spotted your beacon and landed on the ice.\nYou're going home!")
-
-
 ## Half of the meat and fish you carry goes bad overnight. Jerky and chest food keep.
 func _spoil_food() -> void:
 	var lost := 0
@@ -851,16 +875,14 @@ func _spoil_food() -> void:
 		hud.show_toast("%d pieces of meat and fish went bad overnight" % lost)
 
 
-## Which radio parts are still out there: the nearest unsearched site, for the HUD.
+## The nearest abandoned site you haven't searched yet, for the HUD.
 func nearest_site_hint() -> String:
-	if rescue_day > 0 or player.inventory.get("radio_part", 0) >= 3:
-		return ""
 	var best := ""
 	var bd := INF
 	for site in SITES:
 		var searched := true
 		for c in get_tree().get_nodes_in_group("crate"):
-			if c.uses > 0 and c.position.distance_to(site["pos"]) < 200.0 and c.loot.has("radio_part"):
+			if c.uses > 0 and c.position.distance_to(site["pos"]) < 200.0:
 				searched = false
 		if searched:
 			continue
@@ -869,19 +891,6 @@ func nearest_site_hint() -> String:
 			bd = d
 			best = "Rumor: a %s, %dm %s" % [site["name"], int(d / 10.0), hud.compass(site["pos"] - player.position)]
 	return best
-
-
-func continue_endless() -> void:
-	endless = true
-	game_over = false
-	hud.hide_end()
-	hud.show_message("Endless mode. How long can you last?", 4.0)
-
-
-## Days and hours survived, for the end screen.
-func survived_text() -> String:
-	var hours := int(play_time / DAY_LENGTH * 24.0)
-	return "%d days, %d hours" % [int(hours / 24.0), hours % 24]
 
 
 # ---------- Starting, saving and loading ----------
@@ -964,6 +973,7 @@ func save_game() -> void:
 			"temp": player.temp, "hunger": player.hunger, "energy": player.energy, "health": player.health,
 			"inventory": player.inventory, "tools": player.tools, "gear": player.gear,
 			"weapon": player.weapon, "torch_time": player.torch_time,
+			"skills": player.skills, "armor": player.armor,
 		},
 		"map": map, "fires": fires, "igloos": igloos, "cabin": cabin, "loot": loot,
 	}
@@ -1015,6 +1025,12 @@ func load_game(data: Dictionary) -> void:
 	for k in gear:
 		player.gear[k] = bool(gear[k])
 	player.weapon = str(p.get("weapon", "hands"))
+	player.armor = int(p.get("armor", 0))
+	var sk: Dictionary = p.get("skills", {})
+	for k in sk:
+		if player.skills.has(k):
+			player.skills[k] = {"level": int(sk[k]["level"]), "xp": int(sk[k]["xp"])}
+	player.max_health = 100.0 + 10.0 * (player.skill("toughness") - 1)
 	player.torch_time = float(p.get("torch_time", 0.0))
 
 	var map: Array = data.get("map", [])

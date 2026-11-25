@@ -26,7 +26,7 @@ func _process(delta: float) -> void:
 		if n.is_queued_for_deletion():
 			continue
 		if position.distance_to(n.position + Vector2(0, -5)) < n.hit_radius + 6.0:
-			n.take_hit(shooter, damage)
+			n.take_hit(shooter, damage * shooter.damage_mult())
 			queue_free()
 			return
 

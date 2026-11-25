@@ -4,6 +4,13 @@ extends Node2D
 
 const TEX := [preload("res://art/bear_0.png"), preload("res://art/bear_1.png")]
 
+const VARIANTS := {
+	"polar": {"name": "polar bear", "hp": 12.0, "dmg": 28.0, "speed": 125.0, "scale": 2.0, "tint": Color(1, 1, 1),
+		"loot": {"raw_meat": 5, "hide": 3, "bone": 2, "white_fur": 2}, "xp": 80},
+	"great": {"name": "great white bear", "hp": 30.0, "dmg": 45.0, "speed": 140.0, "scale": 2.7, "tint": Color(0.92, 0.97, 1.1),
+		"loot": {"raw_meat": 8, "hide": 4, "bone": 4, "white_fur": 4, "steel": 1}, "xp": 220},
+}
+
 # ---------- Tuning ----------
 const ROAM_SPEED := 35.0
 const CHASE_SPEED := 125.0       # walking is 130, sprinting 210
@@ -14,7 +21,9 @@ const SWIPE_COOLDOWN := 2.0
 const MAX_HP := 10
 
 var main
-var hp := MAX_HP
+var hp := float(MAX_HP)
+var variant := "polar"
+var _v: Dictionary = {}
 var hit_radius := 22.0
 var display_name := "polar bear"
 var home := Vector2.ZERO
@@ -32,6 +41,10 @@ var _print_dist := 0.0
 
 
 func _ready() -> void:
+	_v = VARIANTS.get(variant, VARIANTS["polar"])
+	hp = _v["hp"]
+	display_name = _v["name"]
+	hit_radius = 11.0 * float(_v["scale"])
 	add_to_group("bear")
 	add_to_group("attackable")
 	if home == Vector2.ZERO:
@@ -54,10 +67,10 @@ func _process(delta: float) -> void:
 	if _back_off > 0.0:
 		vel = -dir_p * ROAM_SPEED * 1.5
 	elif dist < sense and not player.dead and not main.is_safe_spot(player.position):
-		vel = dir_p * CHASE_SPEED
-		if dist < 30.0 and _swipe_cd <= 0.0:
+		vel = dir_p * float(_v["speed"])
+		if dist < 14.0 * float(_v["scale"]) and _swipe_cd <= 0.0:
 			main.audio.play("bite", position, 2.0, 0.0, 0.6)
-			player.take_damage(SWIPE_DAMAGE, "a polar bear")
+			player.take_damage(float(_v["dmg"]), "a %s" % display_name, true, true)
 			main.shake(9.0)
 			_swipe_cd = SWIPE_COOLDOWN
 			_back_off = 0.5
@@ -89,7 +102,7 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-func take_hit(player, damage: int = 1) -> void:
+func take_hit(player, damage: float = 1.0) -> void:
 	hp -= damage
 	_hurt = 0.2
 	_angry = 20.0
@@ -99,20 +112,22 @@ func take_hit(player, damage: int = 1) -> void:
 	main.puff(position + Vector2(0, -10), Color(0.95, 0.93, 0.85), 10, 60.0)
 	main.shake(3.0)
 	if hp <= 0:
-		main.spawn_loot(position, {"raw_meat": 5, "hide": 3, "bone": 2})
+		main.spawn_loot(position, _v["loot"].duplicate())
 		main.stats["bears"] += 1
-		main.hud.show_message("You brought down a polar bear! It left meat, hides and bones.", 4.0)
+		player.add_xp("hunting", int(_v["xp"]))
+		main.hud.show_message("You brought down a %s!" % display_name, 4.0)
 		queue_free()
 	else:
-		main.hud.show_toast("You hit the polar bear! It's angry now.")
+		main.hud.show_toast("You hit the %s! It's angry now." % display_name)
 
 
 func _draw() -> void:
+	var sc: float = _v.get("scale", 2.0)
 	draw_set_transform(Vector2(0, 3), 0, Vector2(1, 0.3))
-	draw_circle(Vector2.ZERO, 30, Color(0, 0, 0, 0.22))
+	draw_circle(Vector2.ZERO, 15 * sc, Color(0, 0, 0, 0.22))
 	var flip := -1.0 if facing.x < 0.0 else 1.0
-	draw_set_transform(Vector2.ZERO, 0, Vector2(2.0 * flip, 2.0))
-	var tint := Color(1, 0.55, 0.55) if _hurt > 0.0 else Color(1, 1, 1)
+	draw_set_transform(Vector2.ZERO, 0, Vector2(sc * flip, sc))
+	var tint: Color = Color(1, 0.55, 0.55) if _hurt > 0.0 else _v.get("tint", Color(1, 1, 1))
 	var frame := (int(_anim) % 2) if _moving else 0
 	draw_texture(TEX[frame], Vector2(-15, -15), tint)
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)

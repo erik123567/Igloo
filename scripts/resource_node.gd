@@ -138,8 +138,6 @@ func interact(player) -> void:
 				found.append("%d %s" % [loot[item], main.hud.item_name(item).to_lower()])
 			main.audio.play("chime", null, -6.0, 0.0)
 			var msg := "You found: " + ", ".join(PackedStringArray(found))
-			if loot.has("radio_part"):
-				msg += "\nA radio part! Radio parts: %d/3." % player.inventory["radio_part"]
 			main.hud.show_message(msg, 6.0)
 	queue_redraw()
 

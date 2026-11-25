@@ -4,6 +4,7 @@ extends SceneTree
 
 var main
 var frame := 0
+var test_wolf = null
 var hail_start := 0.0
 var temp_start := 0.0
 
@@ -88,17 +89,21 @@ func _process(_delta: float) -> bool:
 			var wolves := get_nodes_in_group("wolf")
 			print("wolves at night: ", wolves.size())
 			assert(wolves.size() > 0)
+			for w in wolves:
+				if w.variant == "wolf" and not w.resident:
+					test_wolf = w
+			assert(test_wolf != null)
 			p.position += Vector2(500, 0)
-			wolves[0].position = p.position + Vector2(15, 0)
+			test_wolf.position = p.position + Vector2(15, 0)
 		55:
 			print("health after wolf: ", p.health)
 			p.weapon = "bow"
-			var w0 = get_nodes_in_group("wolf")[0]
+			var w0 = test_wolf
 			w0.position = p.position + Vector2(70, 0)
 			p.facing = Vector2.RIGHT
 			p._attack()
 		66:
-			var w0 = get_nodes_in_group("wolf")[0]
+			var w0 = test_wolf
 			print("wolf hp after arrow: ", w0.hp)
 			assert(w0.hp < 3)
 			for i in 3:
@@ -138,9 +143,22 @@ func _process(_delta: float) -> bool:
 		190:
 			var bear = get_nodes_in_group("bear")[0]
 			print("bears: ", get_nodes_in_group("bear").size(), " forest wolves: ", get_nodes_in_group("wolf").size())
-			for i in 5:
-				bear.take_hit(p, 2)
+			var kinds := {}
+			for b in get_nodes_in_group("bear"):
+				kinds[b.variant] = int(kinds.get(b.variant, 0)) + 1
+			var wkinds := {}
+			for w in get_nodes_in_group("wolf"):
+				wkinds[w.variant] = int(wkinds.get(w.variant, 0)) + 1
+			print("bear kinds: ", kinds, " wolf kinds: ", wkinds)
+			assert(kinds.get("great", 0) > 0 and wkinds.get("frost", 0) > 0 and wkinds.get("dire", 0) > 0)
+			var hunting_before: int = p.skills["hunting"]["xp"] + p.skills["hunting"]["level"] * 1000
+			var hits := 0
+			while is_instance_valid(bear) and not bear.is_queued_for_deletion() and hits < 60:
+				bear.take_hit(p, 2.0)
+				hits += 1
+			print("bear (", bear.variant if is_instance_valid(bear) else "?", ") down after ", hits, " hits")
 			assert(not is_instance_valid(bear) or bear.is_queued_for_deletion())
+			assert(p.skills["hunting"]["xp"] + p.skills["hunting"]["level"] * 1000 > hunting_before)
 		200:
 			main.try_sleep()
 		300:
@@ -200,11 +218,11 @@ func _process(_delta: float) -> bool:
 					st.interact(p)
 			assert(p.inventory["jerky"] >= 3)
 			# loot crates up north
-			var parts := 0
+			var steel_before: int = p.inventory["steel"]
 			for c in get_nodes_in_group("crate"):
 				c.interact(p)
-			print("radio parts from crates: ", p.inventory["radio_part"])
-			assert(p.inventory["radio_part"] == 3)
+			print("steel from crates: ", p.inventory["steel"] - steel_before, " white fur: ", p.inventory["white_fur"])
+			assert(p.inventory["steel"] > steel_before)
 			# spoilage
 			p.inventory["raw_meat"] = 4
 			main._spoil_food()
@@ -224,24 +242,37 @@ func _process(_delta: float) -> bool:
 			assert(gone > 0)
 			assert(p.inventory["logs"] > 0)
 		460:
-			# build the beacon, switch it on, and get rescued
-			p.inventory["iron"] = 4
-			p.inventory["logs"] = 10
-			p.position = Vector2(3000, 3900)
-			for r in main.get_recipes():
-				if r["key"] == "beacon":
-					main.craft(r)
-			var beacon = null
+			# progression: skills, armor, polar coat, steel tools
+			var lv0: int = p.skill("toughness")
+			p.add_xp("toughness", 5000)
+			print("toughness ", lv0, " -> ", p.skill("toughness"), " max health ", p.max_health)
+			assert(p.skill("toughness") > lv0 and p.max_health > 100.0)
 			for st in get_nodes_in_group("structure"):
-				if st.kind == "beacon":
-					beacon = st
-			assert(beacon != null)
-			beacon.interact(p)
-			assert(main.rescue_day == main.day + 2)
-			main.day = main.rescue_day
-			main._on_morning()
-			assert(main.won and main.game_over)
-			print("rescued on day ", main.day)
+				if st.kind == "workbench":
+					p.position = st.position + Vector2(0, 40)
+			assert(main.near_workbench())
+			p.gear["coat"] = true
+			for k in ["white_fur", "steel", "bone", "iron", "hide", "logs"]:
+				p.inventory[k] = 20
+			for key in ["polar_coat", "armor_bone", "armor_iron", "axe_steel", "spear_steel"]:
+				var found := false
+				for r in main.get_recipes():
+					if r["key"] == key:
+						assert(main.missing_for(r) == "")
+						main.craft(r)
+						found = true
+				print("crafted ", key, ": ", found)
+				assert(found)
+			assert(p.armor == 2 and p.gear["polar_coat"] and p.tools["axe"] == 4 and p.tools["spear"] == 4)
+			p.health = p.max_health
+			var h0: float = p.health
+			p.take_damage(10.0, "a test", false, true)
+			print("10 damage with iron armor took ", h0 - p.health)
+			assert(absf((h0 - p.health) - 6.0) < 0.6)
+			main.save_game()
+			p.armor = 0
+			main.load_game(main.read_save())
+			assert(p.armor == 2 and p.skill("toughness") > 1)
 		500:
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())
 			return true

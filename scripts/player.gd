@@ -33,15 +33,27 @@ var temp := 85.0      # body temperature, 0 = freezing
 var hunger := 90.0    # 100 = full, 0 = starving
 var energy := 100.0
 var health := 100.0
+var max_health := 100.0
+var armor := 0               # 0 none, 1 bone, 2 iron
+
+## Skills level up with XP as you play (1 to 10).
+var skills := {
+	"survival": {"level": 1, "xp": 0},    # time spent out in the cold: lose less body heat
+	"hunting": {"level": 1, "xp": 0},     # killing animals: hit harder
+	"gathering": {"level": 1, "xp": 0},   # chopping and gathering: use less energy
+	"toughness": {"level": 1, "xp": 0},   # taking hits and surviving nights: more max health
+}
+const MAX_SKILL := 10
+var _cold_xp := 0.0
 
 var inventory := {
 	"sticks": 0, "flint": 0, "stone": 0, "snow_block": 0,
 	"berries": 0, "raw_meat": 0, "cooked_meat": 0,
 	"logs": 0, "arrows": 0, "torch": 0, "hide": 0, "bone": 0, "iron": 0,
-	"raw_fish": 0, "cooked_fish": 0, "jerky": 0, "radio_part": 0,
+	"raw_fish": 0, "cooked_fish": 0, "jerky": 0, "radio_part": 0, "white_fur": 0, "steel": 0,
 }
 var tools := {"axe": 0, "spear": 0, "bow": 0, "rod": 0}   # 0 = don't have it, 1 stone, 2 bone, 3 iron
-var gear := {"mittens": false, "boots": false, "coat": false}
+var gear := {"mittens": false, "boots": false, "coat": false, "polar_coat": false}
 var weapon := "hands"        # "hands", "spear" or "bow"
 var torch_time := 0.0        # seconds left on the torch you're holding
 const TORCH_BURN := 90.0
@@ -167,6 +179,13 @@ func _update_stats(delta: float) -> void:
 	else:
 		rate *= main.weather.cold_multiplier() * main.zone_cold(position)
 	rate *= gear_cold_factor()
+	if rate < 0.0:
+		rate *= 1.0 - 0.04 * (skill("survival") - 1)
+		# braving the cold trains Survival, faster in harsher places
+		_cold_xp += delta * main.zone_cold(position) * (1.0 + main.get_night_factor())
+		if _cold_xp >= 6.0:
+			_cold_xp = 0.0
+			add_xp("survival", 1)
 	if torch_time > 0.0:
 		torch_time = maxf(torch_time - delta * (1.0 + main.weather.blizzard), 0.0)
 		rate += 0.4
@@ -208,8 +227,8 @@ func _update_stats(delta: float) -> void:
 	if hunger <= 0.0:
 		take_damage(STARVE_DAMAGE * delta, "hunger", false)
 	var pelted := hail_dmg > 0.0 and not sheltered
-	if temp > 45.0 and hunger > 40.0 and health < 100.0 and not pelted:
-		health = minf(health + HEAL_RATE * delta, 100.0)
+	if temp > 45.0 and hunger > 40.0 and health < max_health and not pelted:
+		health = minf(health + HEAL_RATE * delta, max_health)
 
 
 func _find_target() -> void:
@@ -231,7 +250,9 @@ func gear_cold_factor() -> float:
 		f *= 0.9
 	if gear["boots"]:
 		f *= 0.9
-	if gear["coat"]:
+	if gear["polar_coat"]:
+		f *= 0.6
+	elif gear["coat"]:
 		f *= 0.75
 	return f
 
@@ -297,7 +318,8 @@ func _attack() -> void:
 	var best = _nearest_attackable(reach)
 	if best != null:
 		facing = (best.position - position).normalized()
-		best.take_hit(self, (1 + int(tools["spear"])) if weapon == "spear" else 1)
+		var base := float(1 + int(tools["spear"])) if weapon == "spear" else 1.0
+		best.take_hit(self, base * damage_mult())
 
 
 func _cycle_weapon() -> void:
@@ -443,6 +465,8 @@ func add_item(item: String, n: int) -> void:
 
 
 func spend_energy(amount: float) -> bool:
+	amount *= 1.0 - 0.06 * (skill("gathering") - 1)
+	add_xp("gathering", 2)
 	if energy < amount:
 		say("You're too exhausted. Stand still, rest by a fire, or sleep.")
 		return false
@@ -454,9 +478,12 @@ func say(text: String) -> void:
 	main.hud.show_message(text, 3.5)
 
 
-func take_damage(amount: float, cause: String, flash: bool = true) -> void:
+func take_damage(amount: float, cause: String, flash: bool = true, is_attack: bool = false) -> void:
 	if dead:
 		return
+	if is_attack:
+		amount *= [1.0, 0.8, 0.6][armor]
+		add_xp("toughness", int(amount * 0.6))
 	health -= amount
 	if flash:
 		_hurt = 0.3
@@ -474,7 +501,8 @@ func take_damage(amount: float, cause: String, flash: bool = true) -> void:
 func apply_sleep(had_fire: bool) -> String:
 	energy = 100.0
 	hunger = maxf(hunger - 25.0, 0.0)
-	health = minf(health + 15.0, 100.0)
+	health = minf(health + 15.0, max_health)
+	add_xp("toughness", 15)
 	if had_fire:
 		temp = maxf(temp, 75.0)
 		return "You slept warm beside the fire."
@@ -548,3 +576,46 @@ func _draw_held() -> void:
 		var f := sin(Time.get_ticks_msec() / 70.0) * 0.8
 		draw_colored_polygon(PackedVector2Array([t + Vector2(-2.5, -5), t + Vector2(f, -12), t + Vector2(2.5, -5)]), Color(1, 0.5, 0.12))
 		draw_colored_polygon(PackedVector2Array([t + Vector2(-1.2, -5), t + Vector2(-f * 0.5, -9), t + Vector2(1.2, -5)]), Color(1, 0.88, 0.4))
+
+
+
+# ---------- Skills ----------
+
+func skill(name: String) -> int:
+	return int(skills[name]["level"])
+
+
+func xp_needed(level: int) -> int:
+	return int(40.0 * pow(level, 1.5))
+
+
+func damage_mult() -> float:
+	return 1.0 + 0.12 * (skill("hunting") - 1)
+
+
+func add_xp(name: String, amount: int) -> void:
+	if amount <= 0 or skill(name) >= MAX_SKILL:
+		return
+	var sk: Dictionary = skills[name]
+	sk["xp"] = int(sk["xp"]) + amount
+	while int(sk["level"]) < MAX_SKILL and int(sk["xp"]) >= xp_needed(int(sk["level"])):
+		sk["xp"] = int(sk["xp"]) - xp_needed(int(sk["level"]))
+		sk["level"] = int(sk["level"]) + 1
+		_on_level_up(name, int(sk["level"]))
+
+
+func _on_level_up(name: String, level: int) -> void:
+	var what := ""
+	match name:
+		"survival":
+			what = "you lose %d%% less body heat" % (4 * (level - 1))
+		"hunting":
+			what = "you hit %d%% harder" % (12 * (level - 1))
+		"gathering":
+			what = "gathering takes %d%% less energy" % (6 * (level - 1))
+		"toughness":
+			max_health = 100.0 + 10.0 * (level - 1)
+			health = minf(health + 10.0, max_health)
+			what = "max health is now %d" % int(max_health)
+	main.audio.play("chime", null, -6.0, 0.0)
+	main.hud.show_message("%s is now level %d: %s." % [name.capitalize(), level, what], 5.0)

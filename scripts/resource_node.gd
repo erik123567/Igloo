@@ -10,11 +10,17 @@ const TEX := {
 	"berry_bush": preload("res://art/bush_berries.png"),
 	"berry_bush_empty": preload("res://art/bush_empty.png"),
 	"meat": preload("res://art/meat.png"),
+	"iron_rock": preload("res://art/iron_rock.png"),
+	"iron_rock_empty": preload("res://art/iron_rock_empty.png"),
+	"hide": preload("res://art/hide.png"),
+	"bone": preload("res://art/bone.png"),
 }
 
 var main
 var kind := "sticks"
 var amount := 1           # used by meat drops
+var loot := {}            # used by "loot" drops: item -> count
+var map_id := -1          # position in the hand-made map, used by saving
 var uses := 1             # -1 means it never runs out
 var max_uses := 1
 var interact_radius := 6.0
@@ -28,6 +34,11 @@ func _ready() -> void:
 		"flint_rock":
 			uses = 4
 			interact_radius = 18.0
+		"iron_rock":
+			uses = 3
+			interact_radius = 16.0
+		"loot":
+			add_to_group("loot")
 		"snow_drift":
 			uses = -1
 			interact_radius = 14.0
@@ -54,6 +65,13 @@ func get_prompt(_player) -> String:
 			return "[E] Pick berries (%d left)" % uses if uses > 0 else "No berries left today"
 		"meat":
 			return "[E] Take raw meat"
+		"iron_rock":
+			return "[E] Break off iron ore" if uses > 0 else "No iron left in this rock"
+		"loot":
+			var parts := []
+			for item in loot:
+				parts.append("%d %s" % [loot[item], main.hud.item_name(item).to_lower()])
+			return "[E] Pick up: " + ", ".join(PackedStringArray(parts))
 	return ""
 
 
@@ -91,6 +109,16 @@ func interact(player) -> void:
 		"meat":
 			player.add_item("raw_meat", amount)
 			queue_free()
+		"iron_rock":
+			if player.spend_energy(5.0):
+				uses -= 1
+				main.audio.play("chop", position)
+				main.puff(position + Vector2(0, -8), Color(0.7, 0.45, 0.3), 6, 50.0)
+				player.add_item("iron", 1)
+		"loot":
+			for item in loot:
+				player.add_item(item, int(loot[item]))
+			queue_free()
 	queue_redraw()
 
 
@@ -104,8 +132,13 @@ func new_day() -> void:
 
 func _draw() -> void:
 	var key := kind
+	if kind == "loot":
+		_draw_loot()
+		return
 	if kind == "flint_rock" and uses == 0:
 		key = "flint_rock_empty"
+	elif kind == "iron_rock" and uses == 0:
+		key = "iron_rock_empty"
 	elif kind == "berry_bush" and uses == 0:
 		key = "berry_bush_empty"
 	var tex: Texture2D = TEX[key]
@@ -115,3 +148,15 @@ func _draw() -> void:
 	draw_circle(Vector2.ZERO, sz.x * 0.45, Color(0, 0, 0, 0.12))
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	draw_texture(tex, Vector2(-floorf(sz.x / 2.0), bottom - sz.y))
+
+
+func _draw_loot() -> void:
+	draw_set_transform(Vector2(0, 1), 0, Vector2(1, 0.3))
+	draw_circle(Vector2.ZERO, 10, Color(0, 0, 0, 0.12))
+	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	var x := -8.0
+	for item in ["hide", "raw_meat", "bone"]:
+		if loot.get(item, 0) > 0:
+			var tex: Texture2D = TEX["meat" if item == "raw_meat" else item]
+			draw_texture(tex, Vector2(x, -tex.get_size().y + 1))
+			x += 6.0

@@ -99,8 +99,9 @@ func take_hit(player, damage: int = 1) -> void:
 	main.puff(position + Vector2(0, -10), Color(0.95, 0.93, 0.85), 10, 60.0)
 	main.shake(3.0)
 	if hp <= 0:
-		main.spawn_meat(position, 5)
-		main.hud.show_message("You brought down a polar bear! It left a lot of meat.", 4.0)
+		main.spawn_loot(position, {"raw_meat": 5, "hide": 3, "bone": 2})
+		main.stats["bears"] += 1
+		main.hud.show_message("You brought down a polar bear! It left meat, hides and bones.", 4.0)
 		queue_free()
 	else:
 		main.hud.show_toast("You hit the polar bear! It's angry now.")

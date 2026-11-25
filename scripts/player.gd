@@ -37,9 +37,10 @@ var health := 100.0
 var inventory := {
 	"sticks": 0, "flint": 0, "stone": 0, "snow_block": 0,
 	"berries": 0, "raw_meat": 0, "cooked_meat": 0,
-	"logs": 0, "arrows": 0, "torch": 0,
+	"logs": 0, "arrows": 0, "torch": 0, "hide": 0, "bone": 0, "iron": 0,
 }
-var tools := {"axe": false, "spear": false, "bow": false}
+var tools := {"axe": 0, "spear": 0, "bow": 0}   # 0 = don't have it, 1 stone, 2 bone, 3 iron
+var gear := {"mittens": false, "boots": false, "coat": false}
 var weapon := "hands"        # "hands", "spear" or "bow"
 var torch_time := 0.0        # seconds left on the torch you're holding
 const TORCH_BURN := 90.0
@@ -123,6 +124,8 @@ func _process(delta: float) -> void:
 
 func _move(delta: float) -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if main.hud.craft_open:
+		dir = Vector2.ZERO  # the arrow keys scroll the crafting menu instead
 	is_moving = dir.length() > 0.1
 	is_sprinting = is_moving and Input.is_action_pressed("sprint") and energy > 1.0
 	var speed := SPRINT_SPEED if is_sprinting else WALK_SPEED
@@ -131,6 +134,8 @@ func _move(delta: float) -> void:
 	if energy < 10.0 and not is_sprinting:
 		speed *= 0.85
 	speed *= main.weather.speed_multiplier()
+	if gear["boots"]:
+		speed *= 1.08
 	if is_moving:
 		facing = dir.normalized()
 		position += dir * speed * delta
@@ -160,6 +165,7 @@ func _update_stats(delta: float) -> void:
 		warmth_source = shelter.shelter_name()
 	else:
 		rate *= main.weather.cold_multiplier() * main.zone_cold(position)
+	rate *= gear_cold_factor()
 	if torch_time > 0.0:
 		torch_time = maxf(torch_time - delta * (1.0 + main.weather.blizzard), 0.0)
 		rate += 0.4
@@ -217,7 +223,22 @@ func _find_target() -> void:
 			target = n
 
 
+## How much of the cold gets through your clothes (1.0 = no fur gear).
+func gear_cold_factor() -> float:
+	var f := 1.0
+	if gear["mittens"]:
+		f *= 0.9
+	if gear["boots"]:
+		f *= 0.9
+	if gear["coat"]:
+		f *= 0.75
+	return f
+
+
 func _handle_actions() -> void:
+	if main.hud.craft_open:
+		main.hud.handle_craft_keys()
+		return
 	if target != null and _action_cd <= 0.0:
 		if Input.is_action_just_pressed("interact"):
 			_use_target()
@@ -231,11 +252,6 @@ func _handle_actions() -> void:
 		_cook()
 	if Input.is_action_just_pressed("sleep"):
 		main.try_sleep()
-	if main.hud.craft_open:
-		for i in range(1, 9):
-			if Input.is_action_just_pressed("craft_%d" % i):
-				main.try_craft(i)
-				break
 	if Input.is_action_just_pressed("cycle_weapon"):
 		_cycle_weapon()
 	if Input.is_action_just_pressed("torch"):
@@ -277,7 +293,7 @@ func _attack() -> void:
 	var best = _nearest_attackable(reach)
 	if best != null:
 		facing = (best.position - position).normalized()
-		best.take_hit(self, 2 if weapon == "spear" else 1)
+		best.take_hit(self, (1 + int(tools["spear"])) if weapon == "spear" else 1)
 
 
 func _cycle_weapon() -> void:

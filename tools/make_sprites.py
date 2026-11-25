@@ -411,4 +411,32 @@ chim = full.copy()
 ImageDraw.Draw(chim).rectangle([70, 8, 78, 26], fill=(110, 110, 118, 255))
 save(outline(chim), "cabin_stove")
 
+# ---------------- Iron rock, hide, bone ----------------
+iron = blob(30, 20, (104, 96, 96), (140, 130, 126), (78, 70, 70), 9)
+for y in range(1, 5):
+    for x in range(8, 22):
+        if iron.getpixel((x, y))[3] > 0 and (y < 4 or x % 2):
+            iron.putpixel((x, y), (242, 246, 252, 255))
+for p in [(7, 10), (13, 8), (19, 12), (11, 14), (22, 9)]:
+    for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1)):
+        iron.putpixel((p[0] + dx, p[1] + dy), (176, 92, 44, 255))
+    iron.putpixel(p, (220, 130, 70, 255))
+save(outline(iron), "iron_rock")
+iron_empty = blob(30, 20, (104, 96, 96), (140, 130, 126), (78, 70, 70), 9)
+save(outline(iron_empty), "iron_rock_empty")
+
+hide = Image.new("RGBA", (14, 10), (0, 0, 0, 0))
+hd = ImageDraw.Draw(hide)
+hd.polygon([(1, 2), (5, 0), (9, 1), (13, 3), (12, 8), (7, 9), (2, 8), (0, 5)], fill=(170, 160, 150, 255))
+hd.polygon([(3, 3), (8, 2), (10, 5), (6, 7), (3, 6)], fill=(200, 192, 182, 255))
+save(outline(hide), "hide")
+
+bone = Image.new("RGBA", (12, 6), (0, 0, 0, 0))
+bnd = ImageDraw.Draw(bone)
+bnd.line([(2, 3), (9, 3)], fill=(236, 230, 210, 255), width=2)
+for cx in (1, 10):
+    bnd.ellipse([cx - 1, 0, cx + 1, 2], fill=(236, 230, 210, 255))
+    bnd.ellipse([cx - 1, 3, cx + 1, 5], fill=(236, 230, 210, 255))
+save(outline(bone), "bone")
+
 print("sprites written to", os.path.abspath(OUT))

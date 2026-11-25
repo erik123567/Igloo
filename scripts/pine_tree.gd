@@ -19,19 +19,19 @@ func _ready() -> void:
 
 
 func get_prompt(player) -> String:
-	if chopped or not player.tools["axe"]:
+	if chopped or int(player.tools["axe"]) == 0:
 		return ""
 	return "[E] Chop the tree (hold E)"
 
 
 func can_interact(player) -> bool:
-	return not chopped and player.tools["axe"]
+	return not chopped and int(player.tools["axe"]) > 0
 
 
 func interact(player) -> void:
 	if not player.spend_energy(4.0):
 		return
-	hp -= 1
+	hp -= int(player.tools["axe"])
 	_wobble = 0.3
 	main.audio.play("chop", position)
 	main.puff(position + Vector2(0, -30 * size), Color(1, 1, 1), 12, 40.0)

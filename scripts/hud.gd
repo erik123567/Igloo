@@ -6,13 +6,14 @@ const ITEM_NAMES := {
 	"sticks": "Sticks", "flint": "Flint", "stone": "Stone", "snow_block": "Snow blocks",
 	"berries": "Berries", "raw_meat": "Raw meat", "cooked_meat": "Cooked meat",
 	"logs": "Logs", "arrows": "Arrows", "torch": "Torches",
+	"hide": "Hides", "bone": "Bones", "iron": "Iron",
 }
 
 const HELP_TEXT := """CONTROLS  (H to hide)
 Move: WASD or arrow keys
 Sprint: Shift (uses energy)
 Gather / use / chop: E (hold)
-Crafting menu: Tab, then 1-8
+Crafting menu: Tab
 Attack / hunt: Space
 Switch weapon: F
 Light a torch: T
@@ -30,7 +31,10 @@ SURVIVE 3 NIGHTS
 - Axe: chop trees for logs. Haul
   them home to build your cabin.
 - North is colder: forest wolves,
-  then polar bears on the tundra."""
+  then polar bears on the tundra.
+- Hides and bones from animals and
+  iron from rusty northern rocks
+  make fur clothes and better tools."""
 
 var main
 var player
@@ -53,6 +57,11 @@ var _end_box: CenterContainer
 var _end_title: Label
 var _end_text: Label
 var _pause_box: CenterContainer
+var _end_buttons: HBoxContainer
+var _title_box: CenterContainer
+var _title_text: Label
+var _title_buttons: HBoxContainer
+var craft_index := 0
 var _frost: TextureRect
 var _hurt_vignette: TextureRect
 var _hurt_time := 0.0
@@ -157,34 +166,91 @@ func _ready() -> void:
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_fade)
 
-	# Pause
-	_pause_box = CenterContainer.new()
-	_pause_box.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_pause_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var pause_label := _label(40, HORIZONTAL_ALIGNMENT_CENTER)
-	pause_label.text = "PAUSED\n(Esc to resume)"
-	_pause_box.add_child(pause_label)
-	_pause_box.visible = false
-	root.add_child(_pause_box)
+	# Pause menu, end screen and title screen
+	var pause := _make_menu(root)
+	_pause_box = pause[0]
+	pause[1].text = "PAUSED"
+	pause[2].text = "Your game is saved every morning.\nSaving here lets you pick up exactly where you left off."
+	_add_button(pause[3], "Resume", func(): _set_paused(false))
+	_add_button(pause[3], "Save and quit to title", _save_and_quit)
 
-	# Win / lose screen
-	_end_box = CenterContainer.new()
-	_end_box.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_end_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var end_panel := PanelContainer.new()
-	var end_style := _panel_style()
-	end_style.bg_color = Color(0.03, 0.05, 0.09, 0.88)
-	end_style.set_content_margin_all(28)
-	end_panel.add_theme_stylebox_override("panel", end_style)
-	var end_vb := VBoxContainer.new()
-	_end_title = _label(44, HORIZONTAL_ALIGNMENT_CENTER)
-	_end_text = _label(20, HORIZONTAL_ALIGNMENT_CENTER)
-	end_vb.add_child(_end_title)
-	end_vb.add_child(_end_text)
-	end_panel.add_child(end_vb)
-	_end_box.add_child(end_panel)
-	_end_box.visible = false
-	root.add_child(_end_box)
+	var end := _make_menu(root)
+	_end_box = end[0]
+	_end_title = end[1]
+	_end_text = end[2]
+	_end_buttons = end[3]
+
+	var title := _make_menu(root, true)
+	_title_box = title[0]
+	title[1].text = "IGLOO"
+	title[1].add_theme_font_size_override("font_size", 72)
+	title[1].add_theme_color_override("font_color", Color(0.85, 0.93, 1.0))
+	_title_text = title[2]
+	_title_buttons = title[3]
+
+
+## Builds a centred dark panel with a title, a text and a row of buttons.
+## Returns [container, title label, text label, button row].
+func _make_menu(root: Control, dim_background: bool = false) -> Array:
+	var box := CenterContainer.new()
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if dim_background:
+		var dim := ColorRect.new()
+		dim.color = Color(0.02, 0.04, 0.08, 0.55)
+		dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+		dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(dim)
+		box.visibility_changed.connect(func(): dim.visible = box.visible)
+	var panel := PanelContainer.new()
+	var style := _panel_style()
+	style.bg_color = Color(0.03, 0.05, 0.09, 0.9)
+	style.set_content_margin_all(28)
+	panel.add_theme_stylebox_override("panel", style)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 14)
+	var t := _label(44, HORIZONTAL_ALIGNMENT_CENTER)
+	var body := _label(19, HORIZONTAL_ALIGNMENT_CENTER)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 16)
+	vb.add_child(t)
+	vb.add_child(body)
+	vb.add_child(row)
+	panel.add_child(vb)
+	box.add_child(panel)
+	box.visible = false
+	root.add_child(box)
+	return [box, t, body, row]
+
+
+func _add_button(row: HBoxContainer, text: String, action: Callable) -> Button:
+	var b := Button.new()
+	b.text = "  " + text + "  "
+	b.add_theme_font_size_override("font_size", 20)
+	b.custom_minimum_size = Vector2(0, 44)
+	b.pressed.connect(action)
+	row.add_child(b)
+	return b
+
+
+func _clear_buttons(row: HBoxContainer) -> void:
+	for c in row.get_children():
+		row.remove_child(c)
+		c.queue_free()
+
+
+func _save_and_quit() -> void:
+	main.save_game()
+	main.restart("title")
+
+
+func _set_paused(on: bool) -> void:
+	get_tree().paused = on
+	_pause_box.visible = on
+	if on:
+		var first: Button = _pause_box.get_child(0).get_child(0).get_child(2).get_child(0)
+		first.grab_focus()
 
 
 # ---------- Builders ----------
@@ -305,15 +371,43 @@ func show_end(won: bool, text: String) -> void:
 	set_craft_open(false)
 	_end_title.text = "YOU SURVIVED!" if won else "YOU DIED"
 	_end_title.add_theme_color_override("font_color", Color(1, 0.85, 0.4) if won else Color(1, 0.4, 0.4))
+	var st: Dictionary = main.stats
+	_end_text.text = "%s\n\nSurvived: %s\nWolves killed: %d    Polar bears: %d    Hares caught: %d" % [
+		text, main.survived_text(), st["wolves"], st["bears"], st["hares"]]
+	_clear_buttons(_end_buttons)
+	var first: Button
 	if won:
-		_end_text.text = text + "\n\nEnter: keep playing      R: start over"
+		first = _add_button(_end_buttons, "Keep playing", func(): main.continue_endless())
+		_add_button(_end_buttons, "New game", func(): main.restart("new"))
 	else:
-		_end_text.text = text + "\n\nPress R to try again"
+		if main.has_save():
+			first = _add_button(_end_buttons, "Retry from this morning", func(): main.restart("continue"))
+			_add_button(_end_buttons, "New game", func(): main.restart("new"))
+		else:
+			first = _add_button(_end_buttons, "Try again", func(): main.restart("new"))
 	_end_box.visible = true
+	first.grab_focus()
 
 
 func hide_end() -> void:
 	_end_box.visible = false
+
+
+func show_title(has_save: bool, saved_day: int) -> void:
+	_title_text.text = "Survive the Arctic.\nKeep warm, build shelter, and make it through the nights."
+	_clear_buttons(_title_buttons)
+	var first: Button
+	if has_save:
+		first = _add_button(_title_buttons, "Continue (day %d)" % saved_day, func(): main.continue_game())
+		_add_button(_title_buttons, "New game", func(): main.start_new_game())
+	else:
+		first = _add_button(_title_buttons, "Start", func(): main.start_new_game())
+	_title_box.visible = true
+	first.grab_focus()
+
+
+func hide_title() -> void:
+	_title_box.visible = false
 
 
 # ---------- Update ----------
@@ -329,9 +423,10 @@ func _process(delta: float) -> void:
 	_clock.text = "Day %d   %s   %s   |   %s   |   %s" % [main.day, main.clock_text(), main.phase_name(), main.weather.label(), main.zone_at(player.position)["name"]]
 
 	var parts := []
-	for key in ["sticks", "flint", "stone", "snow_block", "logs", "berries", "raw_meat", "cooked_meat", "arrows", "torch"]:
-		parts.append("%s %d" % [ITEM_NAMES[key], player.inventory[key]])
-	_inv.text = "   ".join(PackedStringArray(parts))
+	for key in ITEM_NAMES:
+		if player.inventory.get(key, 0) > 0:
+			parts.append("%s %d" % [ITEM_NAMES[key], player.inventory[key]])
+	_inv.text = "   ".join(PackedStringArray(parts)) if not parts.is_empty() else "Your pack is empty"
 
 	var t = player.target
 	var prey = player.prey
@@ -348,8 +443,17 @@ func _process(delta: float) -> void:
 	var gear := "Holding: %s" % player.weapon.capitalize()
 	if player.weapon == "bow":
 		gear += " (%d arrows)" % player.inventory["arrows"]
-	if player.tools["axe"]:
-		gear += "   Axe"
+	var tiers := ["", "Stone", "Bone", "Iron"]
+	if player.weapon == "spear":
+		gear = "Holding: %s spear" % tiers[int(player.tools["spear"])]
+	if int(player.tools["axe"]) > 0:
+		gear += "   %s axe" % tiers[int(player.tools["axe"])]
+	var worn := []
+	for g in ["mittens", "boots", "coat"]:
+		if player.gear[g]:
+			worn.append(g)
+	if not worn.is_empty():
+		gear += "   Fur %s (-%d%% cold)" % [", ".join(PackedStringArray(worn)), int(round((1.0 - player.gear_cold_factor()) * 100.0))]
 	if player.torch_time > 0.0:
 		gear += "   Torch: %ds" % int(player.torch_time)
 	_gear.text = gear
@@ -401,9 +505,11 @@ func _compass(v: Vector2) -> String:
 
 
 func _craft_text() -> String:
-	var lines := ["CRAFTING   (Tab to close, press a number to make it)", ""]
-	var i := 1
-	for r in main.get_recipes():
+	var list: Array = main.get_recipes()
+	craft_index = clampi(craft_index, 0, maxi(list.size() - 1, 0))
+	var lines := ["CRAFTING    W/S or arrows to choose, E or Enter to make, Tab to close", ""]
+	var i := 0
+	for r in list:
 		var cost_parts := []
 		for item in r["cost"]:
 			cost_parts.append("%d %s" % [r["cost"][item], item_name(item).to_lower()])
@@ -411,25 +517,33 @@ func _craft_text() -> String:
 		var miss: String = main.missing_for(r)
 		var state := "READY" if miss == "" else miss
 		var note: String = r["note"]
-		lines.append("[%d]  %s: %s%s   (%s)" % [i, r["name"], cost, (" - " + note) if note != "" else "", state])
+		var cursor := ">> " if i == craft_index else "     "
+		lines.append("%s%s: %s%s   (%s)" % [cursor, r["name"], cost, (" - " + note) if note != "" else "", state])
 		i += 1
 	return "\n".join(PackedStringArray(lines))
 
 
+## Called by the player every frame while the crafting menu is open.
+func handle_craft_keys() -> void:
+	var count: int = main.get_recipes().size()
+	if count == 0:
+		return
+	if Input.is_action_just_pressed("move_down"):
+		craft_index = (craft_index + 1) % count
+	elif Input.is_action_just_pressed("move_up"):
+		craft_index = (craft_index - 1 + count) % count
+	elif Input.is_action_just_pressed("interact") or Input.is_action_just_pressed("continue"):
+		main.try_craft(craft_index + 1)
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if main == null:
+	if main == null or _title_box.visible:
 		return
 	if event.is_action_pressed("pause") and not main.game_over:
-		get_tree().paused = not get_tree().paused
-		_pause_box.visible = get_tree().paused
+		_set_paused(not get_tree().paused)
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("toggle_help"):
 		_help.visible = not _help.visible
 	elif event.is_action_pressed("craft_menu") and not get_tree().paused and not main.game_over:
 		set_craft_open(not craft_open)
 		get_viewport().set_input_as_handled()
-	elif main.game_over:
-		if event.is_action_pressed("restart"):
-			get_tree().paused = false
-			get_tree().reload_current_scene()
-		elif event.is_action_pressed("continue") and main.won:
-			main.continue_endless()

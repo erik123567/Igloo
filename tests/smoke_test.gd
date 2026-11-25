@@ -17,6 +17,10 @@ func _process(_delta: float) -> bool:
 	frame += 1
 	var p = main.player
 	match frame:
+		2:
+			assert(paused)  # title screen is up
+			main.start_new_game()
+			assert(not paused)
 		5:
 			p.inventory["sticks"] = 10
 			p.inventory["flint"] = 3
@@ -24,7 +28,6 @@ func _process(_delta: float) -> bool:
 			p.inventory["snow_block"] = 12
 			p.inventory["raw_meat"] = 2
 			p.inventory["logs"] = 0
-			main.hud.set_craft_open(true)
 			main.try_craft(2)
 		10:
 			for ig in get_nodes_in_group("igloo"):
@@ -34,23 +37,37 @@ func _process(_delta: float) -> bool:
 					ig.interact(p)
 				assert(ig.is_complete())
 		15:
-			main.hud.set_craft_open(true)
 			main.try_craft(1)
 		17:
 			p.inventory["sticks"] = 30
 			p.inventory["flint"] = 6
 			p.inventory["stone"] = 3
-			for i in [3, 4, 6, 7]:
-				main.try_craft(i)
-			assert(p.tools["axe"] and p.tools["spear"])
+			for key in ["axe", "spear", "arrows", "torch"]:
+				for r in main.get_recipes():
+					if r["key"] == key:
+						main.craft(r)
+			assert(p.tools["axe"] == 1 and p.tools["spear"] == 1)
 			var tree = get_nodes_in_group("tree")[0]
 			for i in 6:
 				p.energy = 100.0
 				if not tree.chopped:
 					tree.interact(p)
 			assert(tree.chopped and p.inventory["logs"] >= 2)
-			main.try_craft(5)
-			assert(p.tools["bow"])
+			for r in main.get_recipes():
+				if r["key"] == "bow":
+					main.craft(r)
+			assert(p.tools["bow"] == 1)
+			# tool tiers and fur gear
+			p.inventory["bone"] = 4
+			p.inventory["iron"] = 4
+			p.inventory["hide"] = 10
+			p.inventory["logs"] = 6
+			for key in ["axe_bone", "axe_iron", "spear_bone", "spear_iron", "mittens", "boots", "coat"]:
+				for r in main.get_recipes():
+					if r["key"] == key:
+						main.craft(r)
+			print("tools: ", p.tools, " gear: ", p.gear, " cold factor ", p.gear_cold_factor())
+			assert(p.tools["axe"] == 3 and p.tools["spear"] == 3 and p.gear["coat"])
 			p._light_torch()
 			p._cycle_weapon()
 			print("crafted: ", p.tools, " arrows ", p.inventory["arrows"], " holding ", p.weapon)
@@ -101,8 +118,9 @@ func _process(_delta: float) -> bool:
 			# build the whole cabin and sleep in it instead
 			p.inventory["logs"] = 40
 			p.inventory["stone"] = 20
-			main.hud.set_craft_open(true)
-			main.try_craft(8)
+			for r in main.get_recipes():
+				if r["key"] == "cabin":
+					main.craft(r)
 			var cabin = main.get_home()
 			assert(cabin != null)
 			for i in 40:
@@ -121,6 +139,18 @@ func _process(_delta: float) -> bool:
 			assert(not is_instance_valid(bear) or bear.is_queued_for_deletion())
 		200:
 			main.try_sleep()
+		450:
+			# save, wipe some state, load it back
+			main.save_game()
+			var data: Dictionary = main.read_save()
+			assert(int(data["day"]) == 2)
+			p.inventory["logs"] = 0
+			main.load_game(data)
+			print("after load: logs ", p.inventory["logs"], " cabin level ", main.get_home().level, " chopped trees saved: ", data["map"].count(-2))
+			assert(p.inventory["logs"] > 0)
+		460:
+			p.take_damage(999.0, "a test")
+			assert(main.game_over)
 		500:
 			assert(main.day == 2)
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())

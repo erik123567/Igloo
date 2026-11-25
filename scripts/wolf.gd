@@ -121,8 +121,9 @@ func take_hit(player, damage: int = 1) -> void:
 	main.puff(position + Vector2(0, -6), Color(0.6, 0.62, 0.7), 8, 60.0)
 	main.shake(2.5)
 	if hp <= 0:
-		main.spawn_meat(position, 2)
-		main.hud.show_message("You killed the wolf. It left meat behind.", 3.0)
+		main.spawn_loot(position, {"raw_meat": 2, "hide": 1, "bone": 1})
+		main.stats["wolves"] += 1
+		main.hud.show_message("You killed the wolf. It left meat, a hide and a bone.", 3.0)
 		queue_free()
 	else:
 		main.hud.show_toast("You hit the wolf!")

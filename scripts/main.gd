@@ -33,13 +33,20 @@ const MAX_WOLVES := 5
 
 const RECIPES := [
 	{"key": "campfire", "name": "Campfire", "cost": {"sticks": 3, "flint": 1}, "note": "struck with a stone"},
-	{"key": "igloo", "name": "Igloo shelter", "cost": {}, "note": "then fill it with 6 snow blocks"},
-	{"key": "axe", "name": "Stone axe", "cost": {"sticks": 2, "stone": 1, "flint": 1}, "note": "chop trees for logs"},
-	{"key": "spear", "name": "Spear", "cost": {"sticks": 3, "flint": 1}, "note": "hits twice as hard, longer reach"},
-	{"key": "bow", "name": "Bow", "cost": {"logs": 1, "sticks": 2}, "note": "shoot arrows from afar"},
-	{"key": "arrows", "name": "5 arrows", "cost": {"sticks": 2, "flint": 1}, "note": ""},
-	{"key": "torch", "name": "Torch", "cost": {"sticks": 3}, "note": "light and a little warmth, T to light"},
+	{"key": "igloo", "name": "Igloo shelter", "cost": {}, "note": "fill it with 6 snow blocks"},
 	{"key": "cabin", "name": "Cabin site", "cost": {}, "note": "your home base, build it up with logs"},
+	{"key": "torch", "name": "Torch", "cost": {"sticks": 3}, "note": "light and a little warmth, T to light"},
+	{"key": "axe", "tool": "axe", "tier": 1, "name": "Stone axe", "cost": {"sticks": 2, "stone": 1, "flint": 1}, "note": "chop trees for logs"},
+	{"key": "axe_bone", "tool": "axe", "tier": 2, "name": "Bone axe", "cost": {"bone": 2, "logs": 1, "sticks": 1}, "note": "chops twice as fast"},
+	{"key": "axe_iron", "tool": "axe", "tier": 3, "name": "Iron axe", "cost": {"iron": 2, "logs": 1}, "note": "chops three times as fast"},
+	{"key": "spear", "tool": "spear", "tier": 1, "name": "Stone spear", "cost": {"sticks": 3, "flint": 1}, "note": "2 damage, longer reach"},
+	{"key": "spear_bone", "tool": "spear", "tier": 2, "name": "Bone spear", "cost": {"bone": 2, "sticks": 2}, "note": "3 damage"},
+	{"key": "spear_iron", "tool": "spear", "tier": 3, "name": "Iron spear", "cost": {"iron": 2, "logs": 1}, "note": "4 damage"},
+	{"key": "bow", "tool": "bow", "tier": 1, "name": "Bow", "cost": {"logs": 1, "sticks": 2}, "note": "shoot arrows from afar"},
+	{"key": "arrows", "name": "5 arrows", "cost": {"sticks": 2, "flint": 1}, "note": ""},
+	{"key": "mittens", "gear": "mittens", "name": "Fur mittens", "cost": {"hide": 2}, "note": "10% less cold"},
+	{"key": "boots", "gear": "boots", "name": "Fur boots", "cost": {"hide": 3}, "note": "10% less cold, walk a bit faster"},
+	{"key": "coat", "gear": "coat", "name": "Fur coat", "cost": {"hide": 5}, "note": "25% less cold"},
 ]
 
 # Zones get colder the further north you go (smaller y = further north).
@@ -72,6 +79,14 @@ var hud
 var canvas_mod: CanvasModulate
 var rng := RandomNumberGenerator.new()
 var _light_tex: Texture2D
+var map_nodes: Array = []        # trees and resources of the hand-made map, in build order (for saving)
+var _building := false
+var play_time := 0.0
+var stats := {"wolves": 0, "bears": 0, "hares": 0}
+
+const SAVE_PATH := "user://igloo_save.json"
+## How the scene should start after a reload: "title", "continue" or "new".
+static var start_mode := "title"
 
 
 func _ready() -> void:
@@ -93,7 +108,9 @@ func _ready() -> void:
 	add_child(world)
 
 	rng.seed = 20261125  # same hand-made layout every time
+	_building = true
 	_build_map()
+	_building = false
 	rng.randomize()
 
 	player = PlayerScript.new()
@@ -130,6 +147,16 @@ func _ready() -> void:
 	_spawn_predators()
 	_update_lighting()
 	hud.show_message("You wake up alone in the snow. It's getting colder...\nFind sticks, flint and a stone to make a fire.", 8.0)
+
+	var mode := start_mode
+	start_mode = "title"
+	if mode == "new":
+		start_new_game()
+	elif mode == "continue" and continue_game():
+		pass
+	else:
+		get_tree().paused = true
+		hud.show_title(has_save(), int(read_save().get("day", 1)) if has_save() else 1)
 
 
 # ---------- Input ----------
@@ -213,6 +240,7 @@ func _build_map() -> void:
 		tree.position = t
 		tree.size = 2.0 if (t.y < 3150 and rng.randf() < 0.3) else 1.0
 		world.add_child(tree)
+		map_nodes.append(tree)
 
 	# Sticks: mostly under trees, plenty near where you wake up
 	for i in 140:
@@ -249,6 +277,10 @@ func _build_map() -> void:
 	spawn_resource("berry_bush", _point_near(spawn_point, 280, 380))
 	spawn_resource("berry_bush", _point_near(spawn_point, 300, 420))
 
+	# Iron: rust-streaked rocks out on the tundra and in the far north
+	for i in 16:
+		spawn_resource("iron_rock", _rand_point(150, 150, W - 150, 1650))
+
 
 func zone_at(pos: Vector2) -> Dictionary:
 	for z in ZONES:
@@ -268,11 +300,24 @@ func spawn_resource(kind: String, pos: Vector2, amount: int = 1):
 	r.amount = amount
 	r.position = pos
 	world.add_child(r)
+	if _building:
+		r.map_id = map_nodes.size()
+		map_nodes.append(r)
 	return r
 
 
 func spawn_meat(pos: Vector2, amount: int) -> void:
-	spawn_resource("meat", pos, amount)
+	spawn_loot(pos, {"raw_meat": amount})
+
+
+## Drops a pile of items (meat, hides, bones) on the ground.
+func spawn_loot(pos: Vector2, items: Dictionary) -> void:
+	var r = ResourceNodeScript.new()
+	r.main = self
+	r.kind = "loot"
+	r.loot = items
+	r.position = pos
+	world.add_child(r)
 
 
 # ---------- Day / night ----------
@@ -282,6 +327,7 @@ func _process(delta: float) -> void:
 	cam.offset = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
 	if game_over or sleeping:
 		return
+	play_time += delta
 	var prev := time_of_day
 	time_of_day += delta / DAY_LENGTH
 	if time_of_day >= 1.0:
@@ -370,12 +416,11 @@ func _on_morning() -> void:
 	_spawn_hares()
 	_spawn_predators()
 	if day > WIN_DAYS and not endless:
-		game_over = true
-		won = true
-		hud.show_end(true, "You survived %d nights in the Arctic." % WIN_DAYS)
+		win()
 		return
 	if day > 1:
-		hud.show_message("Day %d. You made it through the night!" % day, 5.0)
+		save_game()
+		hud.show_message("Day %d. You made it through the night! (Game saved)" % day, 5.0)
 		audio.play("chime", null, -6.0, 0.0)
 
 
@@ -530,16 +575,26 @@ func fear_push(pos: Vector2) -> Vector2:
 
 # ---------- Crafting ----------
 
+## The recipes worth showing right now (upgrades appear once you own the tier below).
 func get_recipes() -> Array:
-	return RECIPES
+	var out := []
+	for r in RECIPES:
+		if r.has("tool"):
+			var have: int = int(player.tools[r["tool"]])
+			if have != int(r["tier"]) - 1:
+				continue
+		if r.has("gear") and player.gear[r["gear"]]:
+			continue
+		if r["key"] == "cabin" and get_home() != null:
+			continue
+		out.append(r)
+	return out
 
 
 ## Returns "" if the player can craft recipe r, otherwise what's missing.
 func missing_for(r: Dictionary) -> String:
 	var inv: Dictionary = player.inventory
 	var key: String = r["key"]
-	if key in ["axe", "spear", "bow"] and player.tools[key]:
-		return "already have one"
 	var missing := []
 	var cost: Dictionary = r["cost"]
 	for item in cost:
@@ -552,10 +607,15 @@ func missing_for(r: Dictionary) -> String:
 	return "need " + ", ".join(PackedStringArray(missing))
 
 
+## Crafts the n-th recipe of the current list (1-based).
 func try_craft(which: int) -> void:
-	if which < 1 or which > RECIPES.size():
+	var list := get_recipes()
+	if which < 1 or which > list.size():
 		return
-	var r: Dictionary = RECIPES[which - 1]
+	craft(list[which - 1])
+
+
+func craft(r: Dictionary) -> void:
 	var miss := missing_for(r)
 	if miss != "":
 		hud.show_message("%s: %s." % [r["name"], miss])
@@ -608,13 +668,17 @@ func try_craft(which: int) -> void:
 			cabin.position = place
 			world.add_child(cabin)
 			hud.show_message("Cabin site marked. Haul logs back here and hold E to build:\nfloor (6 logs), walls (10), roof and door (8 logs, 4 stone), then a stove.", 8.0)
-		"axe":
-			player.tools["axe"] = true
-			hud.show_message("Stone axe made. Hold E at a tree to chop it for logs.", 5.0)
-		"spear", "bow":
-			player.tools[key] = true
-			player.weapon = key
+		"axe", "axe_bone", "axe_iron":
+			player.tools["axe"] = int(r["tier"])
+			hud.show_message("%s made. Hold E at a tree to chop it for logs." % r["name"], 5.0)
+		"spear", "spear_bone", "spear_iron", "bow":
+			var tool: String = r["tool"]
+			player.tools[tool] = int(r["tier"])
+			player.weapon = tool
 			hud.show_message("%s made and in hand. F switches weapons." % r["name"], 5.0)
+		"mittens", "boots", "coat":
+			player.gear[key] = true
+			hud.show_message("%s on. You'll feel the cold a little less." % r["name"], 5.0)
 		"arrows":
 			player.inventory["arrows"] += 5
 			hud.show_toast("+5 arrows")
@@ -688,7 +752,14 @@ func on_player_died(cause: String) -> void:
 	if game_over:
 		return
 	game_over = true
-	hud.show_end(false, "You died from %s on day %d." % [cause, day])
+	hud.show_end(false, "You died from %s." % cause)
+
+
+func win() -> void:
+	game_over = true
+	won = true
+	save_game()
+	hud.show_end(true, "You survived %d nights in the Arctic." % WIN_DAYS)
 
 
 func continue_endless() -> void:
@@ -696,3 +767,175 @@ func continue_endless() -> void:
 	game_over = false
 	hud.hide_end()
 	hud.show_message("Endless mode. How long can you last?", 4.0)
+
+
+## Days and hours survived, for the end screen.
+func survived_text() -> String:
+	var hours := int(play_time / DAY_LENGTH * 24.0)
+	return "%d days, %d hours" % [int(hours / 24.0), hours % 24]
+
+
+# ---------- Starting, saving and loading ----------
+
+func start_new_game() -> void:
+	delete_save()
+	hud.hide_title()
+	get_tree().paused = false
+
+
+func continue_game() -> bool:
+	var data := read_save()
+	if data.is_empty():
+		return false
+	load_game(data)
+	hud.hide_title()
+	get_tree().paused = false
+	return true
+
+
+## Reloads the whole scene, then starts it the given way ("new" or "continue").
+func restart(mode: String) -> void:
+	start_mode = mode
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+func has_save() -> bool:
+	return FileAccess.file_exists(SAVE_PATH)
+
+
+func delete_save() -> void:
+	if has_save():
+		DirAccess.remove_absolute(SAVE_PATH)
+
+
+func read_save() -> Dictionary:
+	if not has_save():
+		return {}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		return {}
+	var data = JSON.parse_string(f.get_as_text())
+	return data if data is Dictionary else {}
+
+
+func save_game() -> void:
+	var map := []
+	for n in map_nodes:
+		if not is_instance_valid(n) or n.is_queued_for_deletion():
+			map.append(-2)
+		elif n.is_in_group("tree"):
+			map.append(-2 if n.chopped else n.hp)
+		else:
+			map.append(n.uses)
+	var fires := []
+	for f in get_tree().get_nodes_in_group("fire"):
+		fires.append([f.position.x, f.position.y, f.fuel])
+	var igloos := []
+	for ig in get_tree().get_nodes_in_group("igloo"):
+		igloos.append([ig.position.x, ig.position.y, ig.blocks])
+	var cabin = null
+	var home = get_home()
+	if home != null:
+		cabin = [home.position.x, home.position.y, home.level, home.paid, home.stove_fuel]
+	var loot := []
+	for l in get_tree().get_nodes_in_group("loot"):
+		if not l.is_queued_for_deletion():
+			loot.append([l.position.x, l.position.y, l.loot])
+	var data := {
+		"version": 1,
+		"day": day, "time": time_of_day, "play_time": play_time, "endless": endless, "stats": stats,
+		"player": {
+			"x": player.position.x, "y": player.position.y,
+			"temp": player.temp, "hunger": player.hunger, "energy": player.energy, "health": player.health,
+			"inventory": player.inventory, "tools": player.tools, "gear": player.gear,
+			"weapon": player.weapon, "torch_time": player.torch_time,
+		},
+		"map": map, "fires": fires, "igloos": igloos, "cabin": cabin, "loot": loot,
+	}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("Could not save the game.")
+		return
+	f.store_string(JSON.stringify(data))
+	f.close()
+
+
+func load_game(data: Dictionary) -> void:
+	day = int(data.get("day", 1))
+	time_of_day = float(data.get("time", MORNING))
+	play_time = float(data.get("play_time", 0.0))
+	endless = bool(data.get("endless", false))
+	var saved_stats: Dictionary = data.get("stats", {})
+	for k in saved_stats:
+		stats[k] = int(saved_stats[k])
+	var p: Dictionary = data.get("player", {})
+	player.position = Vector2(float(p.get("x", spawn_point.x)), float(p.get("y", spawn_point.y)))
+	player.temp = float(p.get("temp", 85.0))
+	player.hunger = float(p.get("hunger", 90.0))
+	player.energy = float(p.get("energy", 100.0))
+	player.health = float(p.get("health", 100.0))
+	var inv: Dictionary = p.get("inventory", {})
+	for k in inv:
+		player.inventory[k] = int(inv[k])
+	var tools: Dictionary = p.get("tools", {})
+	for k in tools:
+		player.tools[k] = int(tools[k])
+	var gear: Dictionary = p.get("gear", {})
+	for k in gear:
+		player.gear[k] = bool(gear[k])
+	player.weapon = str(p.get("weapon", "hands"))
+	player.torch_time = float(p.get("torch_time", 0.0))
+
+	var map: Array = data.get("map", [])
+	for i in mini(map.size(), map_nodes.size()):
+		var n = map_nodes[i]
+		var v := int(map[i])
+		if n.is_in_group("tree"):
+			if v == -2:
+				n.chopped = true
+				n.remove_from_group("interactable")
+			else:
+				n.hp = v
+			n.queue_redraw()
+		elif v == -2:
+			n.queue_free()
+		else:
+			n.uses = v
+			n.queue_redraw()
+	for f in data.get("fires", []):
+		var fire = FireScript.new()
+		fire.main = self
+		fire.position = Vector2(float(f[0]), float(f[1]))
+		fire.fuel = float(f[2])
+		world.add_child(fire)
+	for g in data.get("igloos", []):
+		var igloo = IglooScript.new()
+		igloo.main = self
+		igloo.position = Vector2(float(g[0]), float(g[1]))
+		world.add_child(igloo)
+		igloo.blocks = int(g[2])
+		if igloo.is_complete():
+			igloo.remove_from_group("interactable")
+	var c = data.get("cabin", null)
+	if c is Array:
+		var cabin = CabinScript.new()
+		cabin.main = self
+		cabin.position = Vector2(float(c[0]), float(c[1]))
+		cabin.level = int(c[2])
+		var paid: Dictionary = c[3]
+		for k in paid:
+			cabin.paid[k] = int(paid[k])
+		cabin.stove_fuel = float(c[4])
+		world.add_child(cabin)
+	for l in data.get("loot", []):
+		var items := {}
+		var raw: Dictionary = l[2]
+		for k in raw:
+			items[k] = int(raw[k])
+		spawn_loot(Vector2(float(l[0]), float(l[1])), items)
+	for h in get_tree().get_nodes_in_group("hare"):
+		if h.position.distance_to(player.position) < 300.0:
+			h.position.y -= 400.0
+	_update_lighting()
+	hud.show_message("Welcome back. Day %d." % day, 4.0)

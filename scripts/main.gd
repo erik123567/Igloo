@@ -507,7 +507,8 @@ func _spawn_hares() -> void:
 func _spawn_predators() -> void:
 	var have := {"polar": 0, "great": 0}
 	for b in get_tree().get_nodes_in_group("bear"):
-		have[b.variant] += 1
+		if have.has(b.variant):
+			have[b.variant] += 1
 	for i in maxi(BEARS - have["polar"], 0):
 		_spawn_bear("polar", rng.randf_range(650, 1600))
 	for i in maxi(GREAT_BEARS - have["great"], 0):

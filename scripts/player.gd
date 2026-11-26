@@ -2,8 +2,10 @@ extends Node2D
 ## The player: movement, the four survival stats, gathering, eating, cooking and fighting.
 
 # ---------- Tuning (change these numbers to balance the game) ----------
-const WALK_SPEED := 130.0
-const SPRINT_SPEED := 210.0
+const WALK_SPEED := 150.0
+const SPRINT_SPEED := 235.0
+const ACCEL := 1400.0              # how fast you reach full speed (px/s per second)
+const FRICTION := 1800.0           # how fast you stop when you let go
 const COLD_SLOW := 0.7             # speed multiplier when body temp is low
 const INTERACT_RANGE := 26.0
 const ATTACK_RANGE := 36.0
@@ -70,6 +72,10 @@ var dead := false
 var _action_cd := 0.0
 var _attack_cd := 0.0
 var _swing := 0.0
+const SWING_TIME := 0.16
+var velocity := Vector2.ZERO
+var _aim_lock := 0.0        # after an attack you keep facing the way you struck
+var _swing_dir := Vector2.RIGHT
 var _hurt := 0.0
 var _walk := 0.0
 var _light: PointLight2D
@@ -114,16 +120,19 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	main.update_camera(delta)
 	if dead or main.game_over or main.sleeping:
 		return
 	_action_cd = maxf(_action_cd - delta, 0.0)
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
 	_swing = maxf(_swing - delta, 0.0)
+	_aim_lock = maxf(_aim_lock - delta, 0.0)
 	_hurt = maxf(_hurt - delta, 0.0)
 	_dodge_cd = maxf(_dodge_cd - delta, 0.0)
 	if _dodge > 0.0:
 		_dodge -= delta
-		position += _dodge_dir * DODGE_SPEED * delta
+		var t := _dodge / DODGE_TIME   # fast at the start, easing out
+		position += _dodge_dir * DODGE_SPEED * (0.5 + t) * delta
 		position.x = clampf(position.x, 16.0, main.world_size.x - 16.0)
 		position.y = clampf(position.y, 16.0, main.shore_y + 60.0)
 		if randf() < 0.5:
@@ -155,8 +164,8 @@ func _move(delta: float) -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	if main.hud.craft_open:
 		dir = Vector2.ZERO  # the arrow keys scroll the crafting menu instead
-	is_moving = dir.length() > 0.1
-	is_sprinting = is_moving and Input.is_action_pressed("sprint") and energy > 1.0
+	var wants_move := dir.length() > 0.1
+	is_sprinting = wants_move and Input.is_action_pressed("sprint") and energy > 1.0
 	var speed := SPRINT_SPEED if is_sprinting else WALK_SPEED
 	if temp < 25.0:
 		speed *= COLD_SLOW
@@ -165,17 +174,28 @@ func _move(delta: float) -> void:
 	speed *= main.weather.speed_multiplier()
 	if gear["boots"]:
 		speed *= 1.08
-	if is_moving:
+	if _swing > 0.0:
+		speed *= 0.6
+	var want := dir.limit_length(1.0) * speed
+	# snappy: accelerate hard toward where you want to go, brake hard when you stop
+	var rate := ACCEL if wants_move else FRICTION
+	if wants_move and velocity.dot(want) < 0.0:
+		rate = FRICTION * 1.5   # turning around is instant-ish
+	velocity = velocity.move_toward(want, rate * delta)
+	if wants_move and _aim_lock <= 0.0:
 		facing = dir.normalized()
-		position += dir * speed * delta
-		position.x = clampf(position.x, 16.0, main.world_size.x - 16.0)
-		position.y = clampf(position.y, 16.0, main.shore_y + 60.0)
-		_walk += delta * speed * 0.055
-		_step_dist += speed * delta
-		if _step_dist > 20.0:
+	position += velocity * delta
+	position.x = clampf(position.x, 16.0, main.world_size.x - 16.0)
+	position.y = clampf(position.y, 16.0, main.shore_y + 60.0)
+	var spd := velocity.length()
+	is_moving = spd > 20.0
+	if is_moving:
+		_walk += delta * spd * 0.055
+		_step_dist += spd * delta
+		if _step_dist > 22.0:
 			_step_dist = 0.0
 			_step_left = not _step_left
-			var side := facing.orthogonal() * (3.0 if _step_left else -3.0)
+			var side := velocity.normalized().orthogonal() * (3.0 if _step_left else -3.0)
 			main.add_footprint(position + Vector2(0, 3) + side)
 			main.audio.play("step_%d" % (randi() % 3), null, -10.0 if not is_sprinting else -7.0, 0.12)
 
@@ -287,7 +307,7 @@ func _handle_actions() -> void:
 			_use_target()  # holding E repeats, handy for snow blocks
 	if Input.is_action_just_pressed("attack") and _attack_cd <= 0.0:
 		_attack()
-	elif Input.is_action_just_pressed("attack_mouse") and _attack_cd <= 0.0:
+	elif Input.is_action_pressed("attack_mouse") and _attack_cd <= 0.0 and not main.hud.mouse_over_ui():
 		_attack((get_global_mouse_position() - position).normalized())
 	if Input.is_action_just_pressed("dodge"):
 		dodge()
@@ -330,19 +350,23 @@ func _attack(aim: Vector2 = Vector2.ZERO) -> void:
 					best_d = to.length()
 					dir = to.normalized()
 		facing = dir
+		_aim_lock = 0.3
 		main.audio.play("bow", null, -3.0)
 		main.shoot_arrow(position + Vector2(0, -6) + dir * 8.0, dir)
 		return
-	_attack_cd = 0.4 if weapon == "hands" else 0.5
-	_swing = 0.18
-	energy = maxf(energy - 3.0, 0.0)
-	main.audio.play("swing", null, -4.0)
+	_attack_cd = 0.3 if weapon == "hands" else 0.38
+	_swing = SWING_TIME
+	energy = maxf(energy - 2.0, 0.0)
+	main.audio.play("swing", null, -4.0, 0.15)
 	var reach := ATTACK_RANGE + (18.0 if weapon == "spear" else 0.0)
 	var dir := aim
 	if dir == Vector2.ZERO:
-		var best = _nearest_attackable(reach)
+		var best = _nearest_attackable(reach + 20.0)
 		dir = (best.position - position).normalized() if best != null else facing
 	facing = dir
+	_swing_dir = dir
+	_aim_lock = 0.3
+	velocity += dir * 140.0   # a little lunge into the swing
 	# a sweeping arc: hits everything in front of you within reach
 	var base := float(1 + int(tools["spear"])) if weapon == "spear" else 1.0
 	var hit_any := false
@@ -350,11 +374,15 @@ func _attack(aim: Vector2 = Vector2.ZERO) -> void:
 		if n.is_queued_for_deletion():
 			continue
 		var to: Vector2 = n.position - position
-		if to.length() < reach + n.hit_radius and (to.length() < 10.0 or absf(dir.angle_to(to)) < 1.0):
+		if to.length() < reach + n.hit_radius and (to.length() < 12.0 + n.hit_radius * 0.5 or absf(dir.angle_to(to)) < 1.1):
 			n.take_hit(self, base * damage_mult())
+			if n.has_method("knock"):
+				n.knock(dir * (260.0 if weapon == "spear" else 200.0))
 			hit_any = true
 	if hit_any:
-		main.hit_stop()
+		main.audio.play("hit", null, 0.0, 0.1)
+		main.kick(dir, 4.0)
+		velocity -= dir * 120.0   # recoil off what you hit
 
 
 ## A quick roll in the direction you're moving (or facing). You can't be hurt mid-roll.
@@ -368,7 +396,8 @@ func dodge() -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	_dodge_dir = dir.normalized() if dir.length() > 0.1 else facing
 	_dodge = DODGE_TIME
-	_dodge_cd = 0.7
+	_dodge_cd = 0.6
+	velocity = _dodge_dir * WALK_SPEED
 	main.audio.play("swing", null, -8.0, 0.0, 0.7)
 
 
@@ -615,10 +644,16 @@ func _draw() -> void:
 		draw_line(Vector2(6, -8), bob + Vector2(0, -1 + dip), Color(0.9, 0.9, 0.9, 0.8), 0.6)
 		draw_circle(bob + Vector2(0, -1 + dip), 1.6, Color(1, 0.3, 0.2))
 	if _swing > 0.0:
-		var a := facing.angle()
-		var r := 16.0 if weapon == "spear" else 12.0
-		draw_arc(facing * 10.0 + Vector2(0, -5), r, a - 1.0, a + 1.0, 12, Color(1, 1, 1, 0.9), 3.0)
-		draw_arc(facing * 10.0 + Vector2(0, -5), r - 4.0, a - 0.8, a + 0.8, 10, Color(1, 1, 1, 0.5), 1.5)
+		# a bold crescent that sweeps across in the swing direction
+		var k := 1.0 - _swing / SWING_TIME
+		var a := _swing_dir.angle()
+		var r := 26.0 if weapon == "spear" else 20.0
+		var c := Vector2(0, -6)
+		var from := a - 1.1 + 2.2 * maxf(k - 0.35, 0.0)
+		var to := a - 1.1 + 2.2 * minf(k + 0.45, 1.0)
+		var col := Color(1, 1, 1, 0.95 * (1.0 - k * 0.6))
+		draw_arc(c, r, from, to, 14, col, 5.0)
+		draw_arc(c, r - 6.0, from + 0.15, to - 0.1, 12, Color(0.8, 0.9, 1.0, 0.5 * (1.0 - k)), 3.0)
 
 
 ## Draws the weapon and torch in your hands (in the sprite's own flipped space).

@@ -47,6 +47,7 @@ var _moving := false
 var _print_dist := 0.0
 var _howl_timer := 0.0
 var _windup := 0.0
+var _kb := Vector2.ZERO
 var _summons := 2             # the alpha calls for help twice
 
 
@@ -71,6 +72,10 @@ func max_hp() -> float:
 	return float(_v["hp"])
 
 
+func knock(v: Vector2) -> void:
+	_kb = v * (0.3 if is_boss() else 1.0 / float(_v["scale"]))
+
+
 func leave() -> void:
 	if not resident:
 		leaving = true
@@ -82,6 +87,12 @@ func _process(delta: float) -> void:
 	_bite_cd -= delta
 	_back_off -= delta
 	_hurt = maxf(_hurt - delta, 0.0)
+	if _kb.length() > 5.0:
+		position += _kb * delta
+		_kb = _kb.move_toward(Vector2.ZERO, 1500.0 * delta)
+	if _hurt > 0.0 and not leaving:
+		queue_redraw()
+		return   # stunned for a moment after a hit
 	var player = main.player
 	var to_p: Vector2 = player.position - position
 	var dist := to_p.length()
@@ -163,10 +174,9 @@ func _process(delta: float) -> void:
 
 func take_hit(player, damage: float = 1.0) -> void:
 	hp -= damage
-	_hurt = 0.2
+	_hurt = 0.1 if is_boss() else 0.2
 	_windup = 0.0
-	_back_off = 0.8 if is_boss() else 2.0
-	position += (position - player.position).normalized() * (8.0 if is_boss() else 22.0)
+	_back_off = 0.25 if is_boss() else 0.45
 	main.float_text(position + Vector2(0, -20 * float(_v["scale"])), str(snappedf(damage, 0.1)), Color(1, 0.9, 0.5))
 	if is_boss() and _summons > 0 and hp < max_hp() * (0.33 * _summons) and hp > 0:
 		_summons -= 1

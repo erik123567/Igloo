@@ -168,9 +168,9 @@ func _ready() -> void:
 	cam.limit_top = 0
 	cam.limit_right = int(world_size.x)
 	cam.limit_bottom = int(world_size.y)
-	cam.position_smoothing_enabled = true
-	cam.position_smoothing_speed = 6.0
-	player.add_child(cam)
+	cam.position_smoothing_enabled = false   # we smooth it ourselves, in step with the player
+	cam.position = player.position
+	add_child(cam)
 	cam.make_current()
 
 	audio = AudioScript.new()
@@ -390,8 +390,6 @@ func spawn_loot(pos: Vector2, items: Dictionary) -> void:
 # ---------- Day / night ----------
 
 func _process(delta: float) -> void:
-	_shake = maxf(_shake - delta * 30.0, 0.0)
-	cam.offset = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
 	if game_over or sleeping:
 		return
 	play_time += delta
@@ -640,6 +638,30 @@ func draw_bar(ci: CanvasItem, pos: Vector2, width: float, frac: float, color: Co
 
 
 # ---------- Effects ----------
+
+var _kick := Vector2.ZERO
+
+
+## Follows the player smoothly, leaning a little toward where you aim and move.
+## Called by the player right after it moves, so the two never drift out of step.
+func update_camera(delta: float) -> void:
+	var look := Vector2.ZERO
+	var mouse := get_viewport().get_mouse_position() - get_viewport().get_visible_rect().size / 2.0
+	look = (mouse / cam.zoom).limit_length(220.0) * 0.18
+	look += player.velocity * 0.12
+	var goal: Vector2 = player.position + look
+	cam.position = cam.position.lerp(goal, 1.0 - exp(-10.0 * delta))
+	if cam.position.distance_to(player.position) > 300.0:
+		cam.position = player.position
+	_shake = maxf(_shake - delta * 30.0, 0.0)
+	_kick = _kick.lerp(Vector2.ZERO, 1.0 - exp(-18.0 * delta))
+	cam.offset = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake + _kick
+
+
+## A quick nudge of the camera in a direction (for hits).
+func kick(dir: Vector2, amount: float) -> void:
+	_kick += dir * amount
+
 
 func shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)

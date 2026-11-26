@@ -663,3 +663,8 @@ func inventory_text() -> String:
 		t += "  %s  level %d   %s\n" % [k.capitalize(), lv, "MAX" if lv >= player.MAX_SKILL else "%d / %d xp" % [player.skills[k]["xp"], need]]
 	t += "\nBOSSES BEATEN: %d / %d" % [main.bosses_killed.size(), main.BOSSES.size()]
 	return t
+
+
+## True when the mouse is busy with a menu, so clicks shouldn't swing.
+func mouse_over_ui() -> bool:
+	return get_tree().paused or craft_open or _title_box.visible

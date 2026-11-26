@@ -45,6 +45,7 @@ var _anim := 0.0
 var _moving := false
 var _print_dist := 0.0
 var _windup := 0.0
+var _kb := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -72,6 +73,10 @@ func reach() -> float:
 	return 18.0 * float(_v["scale"])
 
 
+func knock(v: Vector2) -> void:
+	_kb = v * (0.12 if is_boss() else 0.35)
+
+
 func _process(delta: float) -> void:
 	if main.game_over or main.sleeping:
 		return
@@ -79,6 +84,12 @@ func _process(delta: float) -> void:
 	_back_off -= delta
 	_angry = maxf(_angry - delta, 0.0)
 	_hurt = maxf(_hurt - delta, 0.0)
+	if _kb.length() > 5.0:
+		position += _kb * delta
+		_kb = _kb.move_toward(Vector2.ZERO, 1500.0 * delta)
+	if _hurt > 0.0 and _windup <= 0.0:
+		queue_redraw()
+		return
 	var player = main.player
 	var to_p: Vector2 = player.position - position
 	var dist := to_p.length()
@@ -140,10 +151,9 @@ func _process(delta: float) -> void:
 
 func take_hit(player, damage: float = 1.0) -> void:
 	hp -= damage
-	_hurt = 0.2
+	_hurt = 0.1 if is_boss() else 0.2
 	_angry = 20.0
 	main.float_text(position + Vector2(0, -16 * float(_v["scale"])), str(snappedf(damage, 0.1)), Color(1, 0.9, 0.5))
-	position += (position - player.position).normalized() * 6.0
 	main.audio.play("hit", position)
 	main.audio.play("bite", position, -2.0, 0.0, 0.55)
 	main.puff(position + Vector2(0, -10), Color(0.95, 0.93, 0.85), 10, 60.0)

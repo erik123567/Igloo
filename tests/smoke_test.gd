@@ -312,7 +312,7 @@ func _process(_delta: float) -> bool:
 			p.weapon = "spear"
 			p._attack(Vector2.RIGHT)
 			assert(p._buffer > 0.0)
-		476:
+		486:
 			print("swing state a few frames after a click: ", p._atk_state, " combo ", p._combo)
 			assert(p._combo == 1 and p._atk_state != "")
 			Engine.time_scale = 1.0

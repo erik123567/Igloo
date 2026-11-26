@@ -312,6 +312,8 @@ func _process(_delta: float) -> bool:
 			p.weapon = "spear"
 			p.position = Vector2(3000, 4000)
 			p._atk_state = ""
+			p._dodge = 0.0   # the perfect dodge above slowed time, so the roll may not be over yet
+			p._freeze = 0.0
 			p._combo_t = 0.0
 			p._attack(Vector2.RIGHT)
 			p._update_attack(0.0)

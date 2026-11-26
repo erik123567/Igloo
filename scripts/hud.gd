@@ -25,9 +25,14 @@ Sleep in igloo or cabin: Z
 Pause: Esc
 
 FIGHTING
-- Animals flash red and crouch
-  (!) before they bite. Dodge or
-  step back, then strike.
+- Click in rhythm: the 3rd hit
+  of a combo is a big finisher.
+- Animals crouch (!) before they
+  bite and can't stop once they
+  start. Dodge, then punish them
+  while they recover.
+- Dodge right as a hit lands for
+  slow-mo and a critical hit.
 - Bears show a red circle before
   they swipe. Get out of it!
 - Each zone has a boss. Beat it

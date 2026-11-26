@@ -76,6 +76,14 @@ const SWING_TIME := 0.16
 var velocity := Vector2.ZERO
 var _aim_lock := 0.0        # after an attack you keep facing the way you struck
 var _swing_dir := Vector2.RIGHT
+var _atk_state := ""        # "", "startup" or "recovery"
+var _atk_t := 0.0
+var _buffer := 0.0          # a click you made a moment ago, waiting for the current swing to end
+var _buffer_aim := Vector2.ZERO
+var _combo := 0             # 1, 2 or 3: which hit of the combo this is
+var _combo_t := 0.0
+var _freeze := 0.0          # hitstop
+var _crit := false          # next hit is a critical (after a perfect dodge)
 var _hurt := 0.0
 var _walk := 0.0
 var _light: PointLight2D
@@ -88,7 +96,15 @@ var _dodge_cd := 0.0
 var _dodge_dir := Vector2.DOWN
 const DODGE_TIME := 0.28
 const DODGE_SPEED := 430.0
-const DODGE_ENERGY := 12.0
+const DODGE_ENERGY := 4.0
+const PERFECT_WINDOW := 0.12        # dodge this close to a hit for slow-mo and a critical
+## Swing timing per weapon: wind-up, recovery (seconds), arc (radians), extra reach.
+const SWINGS := {
+	"hands": {"startup": 0.05, "recovery": 0.15, "arc": 1.0, "reach": 0.0},
+	"spear": {"startup": 0.08, "recovery": 0.22, "arc": 0.6, "reach": 26.0},
+}
+const COMBO_MULT := [1.0, 1.0, 1.8]
+const BUFFER_TIME := 0.15
 
 
 func _ready() -> void:
@@ -123,6 +139,11 @@ func _process(delta: float) -> void:
 	main.update_camera(delta)
 	if dead or main.game_over or main.sleeping:
 		return
+	if _freeze > 0.0:
+		_freeze -= delta
+		queue_redraw()
+		return
+	_update_attack(delta)
 	_action_cd = maxf(_action_cd - delta, 0.0)
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
 	_swing = maxf(_swing - delta, 0.0)
@@ -305,9 +326,9 @@ func _handle_actions() -> void:
 			_use_target()
 		elif Input.is_action_pressed("interact") and target.can_interact(self):
 			_use_target()  # holding E repeats, handy for snow blocks
-	if Input.is_action_just_pressed("attack") and _attack_cd <= 0.0:
+	if Input.is_action_just_pressed("attack"):
 		_attack()
-	elif Input.is_action_pressed("attack_mouse") and _attack_cd <= 0.0 and not main.hud.mouse_over_ui():
+	elif Input.is_action_just_pressed("attack_mouse") and not main.hud.mouse_over_ui():
 		_attack((get_global_mouse_position() - position).normalized())
 	if Input.is_action_just_pressed("dodge"):
 		dodge()
@@ -354,41 +375,108 @@ func _attack(aim: Vector2 = Vector2.ZERO) -> void:
 		main.audio.play("bow", null, -3.0)
 		main.shoot_arrow(position + Vector2(0, -6) + dir * 8.0, dir)
 		return
-	_attack_cd = 0.3 if weapon == "hands" else 0.38
-	_swing = SWING_TIME
-	energy = maxf(energy - 2.0, 0.0)
-	main.audio.play("swing", null, -4.0, 0.15)
-	var reach := ATTACK_RANGE + (18.0 if weapon == "spear" else 0.0)
+	# melee: queue the swing; it starts as soon as the current one allows
+	_buffer = BUFFER_TIME
+	_buffer_aim = aim
+
+
+## Runs the melee swing: wind-up, the hit, then recovery (which a dodge can cancel).
+func _update_attack(delta: float) -> void:
+	_buffer = maxf(_buffer - delta, 0.0)
+	_combo_t = maxf(_combo_t - delta, 0.0)
+	if _atk_state != "":
+		_atk_t -= delta
+		if _atk_t <= 0.0:
+			if _atk_state == "startup":
+				_strike(_swing_dir)
+				_atk_state = "recovery"
+				_atk_t = SWINGS.get(weapon, SWINGS["hands"])["recovery"]
+			else:
+				_atk_state = ""
+				_combo_t = 0.5
+	if _atk_state == "" and _buffer > 0.0 and weapon != "bow" and _dodge <= 0.0:
+		_buffer = 0.0
+		_begin_swing(_buffer_aim)
+
+
+func _begin_swing(aim: Vector2) -> void:
+	var sw: Dictionary = SWINGS.get(weapon, SWINGS["hands"])
 	var dir := aim
 	if dir == Vector2.ZERO:
-		var best = _nearest_attackable(reach + 20.0)
+		var best = _nearest_attackable(ATTACK_RANGE + float(sw["reach"]) + 20.0)
 		dir = (best.position - position).normalized() if best != null else facing
-	facing = dir
+	_combo = (_combo % 3) + 1 if _combo_t > 0.0 else 1
 	_swing_dir = dir
-	_aim_lock = 0.3
-	velocity += dir * 140.0   # a little lunge into the swing
-	# a sweeping arc: hits everything in front of you within reach
+	facing = dir
+	_aim_lock = 0.4
+	_atk_state = "startup"
+	_atk_t = sw["startup"]
+	velocity -= dir * 40.0   # tiny pull-back before the blow
+	energy = maxf(energy - 1.5, 0.0)
+	main.audio.play("swing", null, -4.0, 0.05, 1.0 + 0.05 * (_combo - 1))
+
+
+## The moment the blow lands: hits everything in the weapon's arc.
+func _strike(dir: Vector2) -> void:
+	var sw: Dictionary = SWINGS.get(weapon, SWINGS["hands"])
+	_swing = SWING_TIME
+	var finisher := _combo == 3
+	var reach := ATTACK_RANGE + float(sw["reach"])
 	var base := float(1 + int(tools["spear"])) if weapon == "spear" else 1.0
+	var dmg: float = base * damage_mult() * COMBO_MULT[_combo - 1]
+	if _crit:
+		dmg *= 2.0
+	velocity += dir * 180.0   # lunge into the blow
 	var hit_any := false
+	var killed := false
+	var big := false
 	for n in get_tree().get_nodes_in_group("attackable"):
 		if n.is_queued_for_deletion():
 			continue
 		var to: Vector2 = n.position - position
-		if to.length() < reach + n.hit_radius and (to.length() < 12.0 + n.hit_radius * 0.5 or absf(dir.angle_to(to)) < 1.1):
-			n.take_hit(self, base * damage_mult())
+		if to.length() < reach + n.hit_radius and (to.length() < 12.0 + n.hit_radius * 0.5 or absf(dir.angle_to(to)) < float(sw["arc"])):
+			n.take_hit(self, dmg)
 			if n.has_method("knock"):
-				n.knock(dir * (260.0 if weapon == "spear" else 200.0))
+				n.knock(dir * (450.0 if finisher else 250.0))
+			if n.has_method("freeze"):
+				n.freeze(0.08)
+			if n.is_queued_for_deletion():
+				killed = true
+			if n.has_method("is_boss") and n.is_boss():
+				big = true
+			main.puff(n.position + Vector2(0, -8), Color(0.9, 0.2, 0.2) if randf() < 0.5 else Color(1, 1, 1), 8, 90.0)
 			hit_any = true
 	if hit_any:
-		main.audio.play("hit", null, 0.0, 0.1)
-		main.kick(dir, 4.0)
-		velocity -= dir * 120.0   # recoil off what you hit
+		var stop := 0.05
+		if weapon == "spear" or finisher:
+			stop = 0.08
+		if killed or big or _crit:
+			stop = 0.12
+		_freeze = stop
+		main.audio.play("hit", null, 0.0, 0.05, 1.0 + 0.05 * (_combo - 1))
+		main.kick(dir, 6.0 if finisher else 3.0)
+		main.shake(5.0 if (finisher or killed) else 2.0)
+		velocity -= dir * 60.0   # small recoil
+		if _crit:
+			main.float_text(position + Vector2(0, -28), "CRITICAL!", Color(1, 0.85, 0.3))
+		_crit = false
+
+
+## Called by an enemy whose attack you just rolled through.
+func on_dodged() -> void:
+	if DODGE_TIME - _dodge <= PERFECT_WINDOW + 0.06:
+		_crit = true
+		main.slow_mo(0.3, 0.3)
+		main.float_text(position + Vector2(0, -28), "Perfect dodge!", Color(0.6, 0.95, 1.0))
+	else:
+		main.float_text(position + Vector2(0, -24), "dodged!", Color(0.7, 0.95, 1.0))
 
 
 ## A quick roll in the direction you're moving (or facing). You can't be hurt mid-roll.
 func dodge() -> void:
-	if _dodge_cd > 0.0 or _dodge > 0.0:
+	if _dodge_cd > 0.0 or _dodge > 0.0 or _atk_state == "startup":
 		return
+	_atk_state = ""   # rolling cancels the swing's recovery
 	if energy < DODGE_ENERGY:
 		say("Too tired to dodge.")
 		return
@@ -396,7 +484,7 @@ func dodge() -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	_dodge_dir = dir.normalized() if dir.length() > 0.1 else facing
 	_dodge = DODGE_TIME
-	_dodge_cd = 0.6
+	_dodge_cd = 0.35
 	velocity = _dodge_dir * WALK_SPEED
 	main.audio.play("swing", null, -8.0, 0.0, 0.7)
 
@@ -566,8 +654,10 @@ func take_damage(amount: float, cause: String, flash: bool = true, is_attack: bo
 		return
 	if is_attack:
 		if _dodge > 0.0:
+			on_dodged()
 			return
 		amount *= [1.0, 0.8, 0.6, 0.45][armor]
+		main.shake(6.0)
 		add_xp("toughness", int(amount * 0.6))
 	health -= amount
 	if flash:

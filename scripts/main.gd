@@ -134,6 +134,7 @@ static var start_mode := "title"
 
 
 func _ready() -> void:
+	Engine.time_scale = 1.0
 	_setup_input()
 
 	var ground = GroundScript.new()
@@ -656,6 +657,21 @@ func update_camera(delta: float) -> void:
 	_shake = maxf(_shake - delta * 30.0, 0.0)
 	_kick = _kick.lerp(Vector2.ZERO, 1.0 - exp(-18.0 * delta))
 	cam.offset = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake + _kick
+
+
+## How many other wolves are mid-attack on the player right now.
+func wolves_attacking(me) -> int:
+	var n := 0
+	for w in get_tree().get_nodes_in_group("wolf"):
+		if w != me and w.is_attacking():
+			n += 1
+	return n
+
+
+## Slows the whole game briefly (perfect dodge).
+func slow_mo(scale: float, seconds: float) -> void:
+	Engine.time_scale = scale
+	get_tree().create_timer(seconds, true, false, true).timeout.connect(func(): Engine.time_scale = 1.0)
 
 
 ## A quick nudge of the camera in a direction (for hits).

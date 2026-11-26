@@ -48,6 +48,10 @@ var _print_dist := 0.0
 var _howl_timer := 0.0
 var _windup := 0.0
 var _kb := Vector2.ZERO
+var _recover := 0.0      # standing still after an attack: free hits for you
+var _freeze := 0.0       # hitstop
+var _flash := 0.0        # white flash when hit
+var _poise_hits := 0
 var _summons := 2             # the alpha calls for help twice
 
 
@@ -72,6 +76,14 @@ func max_hp() -> float:
 	return float(_v["hp"])
 
 
+func freeze(t: float) -> void:
+	_freeze = t
+
+
+func is_attacking() -> bool:
+	return _windup > 0.0 or _recover > 0.0
+
+
 func knock(v: Vector2) -> void:
 	_kb = v * (0.3 if is_boss() else 1.0 / float(_v["scale"]))
 
@@ -87,6 +99,18 @@ func _process(delta: float) -> void:
 	_bite_cd -= delta
 	_back_off -= delta
 	_hurt = maxf(_hurt - delta, 0.0)
+	_flash = maxf(_flash - delta, 0.0)
+	if _freeze > 0.0:
+		_freeze -= delta
+		queue_redraw()
+		return
+	if _recover > 0.0 and not leaving:
+		_recover -= delta
+		if _kb.length() > 5.0:
+			position += _kb * delta
+			_kb = _kb.move_toward(Vector2.ZERO, 1500.0 * delta)
+		queue_redraw()
+		return
 	if _kb.length() > 5.0:
 		position += _kb * delta
 		_kb = _kb.move_toward(Vector2.ZERO, 1500.0 * delta)
@@ -110,14 +134,15 @@ func _process(delta: float) -> void:
 		facing = dir_p
 		if _windup <= 0.0:
 			position += dir_p * 14.0 * float(_v["scale"])
-			if dist < 34.0 * float(_v["scale"]) and not player.is_dodging():
-				main.audio.play("bite", position)
-				player.take_damage(float(_v["dmg"]), "a %s" % display_name, true, true)
-				main.hud.show_toast("The %s bites you!" % display_name)
-			else:
-				main.float_text(player.position + Vector2(0, -24), "dodged!", Color(0.7, 0.95, 1.0))
+			if dist < 34.0 * float(_v["scale"]):
+				if player.is_dodging():
+					player.on_dodged()
+				else:
+					main.audio.play("bite", position)
+					player.take_damage(float(_v["dmg"]), "a %s" % display_name, true, true)
+					main.hud.show_toast("The %s bites you!" % display_name)
 			_bite_cd = BITE_COOLDOWN
-			_back_off = 0.7
+			_recover = 0.5
 	elif _back_off > 0.0:
 		vel = -dir_p * float(_v["speed"]) * 0.9
 	elif is_boss() and position.distance_to(home) > 650.0:
@@ -126,7 +151,10 @@ func _process(delta: float) -> void:
 		hp = minf(hp + delta * 2.0, max_hp())
 	elif dist < float(_v["sense"]) and not player.dead and not main.is_safe_spot(player.position):
 		vel = dir_p * float(_v["speed"])
-		if dist < 26.0 * float(_v["scale"]) and _bite_cd <= 0.0:
+		# a pack takes turns: at most two wolves go for you at once, the rest circle
+		if dist < 110.0 and not is_boss() and main.wolves_attacking(self) >= 2:
+			vel = dir_p.orthogonal() * PROWL_SPEED * 1.6 + dir_p * (90.0 - dist)
+		elif dist < 26.0 * float(_v["scale"]) and _bite_cd <= 0.0:
 			_windup = WINDUP
 			vel = Vector2.ZERO
 			main.audio.play("swing", position, -10.0, 0.0, 0.6)
@@ -174,9 +202,13 @@ func _process(delta: float) -> void:
 
 func take_hit(player, damage: float = 1.0) -> void:
 	hp -= damage
-	_hurt = 0.1 if is_boss() else 0.2
-	_windup = 0.0
-	_back_off = 0.25 if is_boss() else 0.45
+	_flash = 0.07
+	# poise: a wolf only flinches every few hits, and never mid-lunge
+	_poise_hits += 1
+	var poise := 2 if variant == "wolf" else 3
+	if not is_boss() and _windup <= 0.0 and _poise_hits >= poise:
+		_poise_hits = 0
+		_hurt = 0.12
 	main.float_text(position + Vector2(0, -20 * float(_v["scale"])), str(snappedf(damage, 0.1)), Color(1, 0.9, 0.5))
 	if is_boss() and _summons > 0 and hp < max_hp() * (0.33 * _summons) and hp > 0:
 		_summons -= 1
@@ -192,7 +224,6 @@ func take_hit(player, damage: float = 1.0) -> void:
 			get_parent().add_child(w)
 	main.audio.play("hit", position)
 	main.puff(position + Vector2(0, -6), Color(0.6, 0.62, 0.7), 8, 60.0)
-	main.shake(2.5)
 	if hp <= 0:
 		main.spawn_loot(position, _v["loot"].duplicate())
 		main.stats["wolves"] += 1
@@ -213,6 +244,8 @@ func _draw() -> void:
 	var flip := -1.0 if facing.x < 0.0 else 1.0
 	draw_set_transform(Vector2.ZERO, 0, Vector2(flip * sc, sc))
 	var tint: Color = Color(1, 0.5, 0.5) if _hurt > 0.0 else _v.get("tint", Color(1, 1, 1))
+	if _flash > 0.0:
+		tint = Color(3, 3, 3)
 	if _windup > 0.0:
 		tint = tint.lerp(Color(1, 0.3, 0.3), 0.5)
 		draw_set_transform(Vector2(0, 2), 0, Vector2(flip * sc * 1.1, sc * 0.85))

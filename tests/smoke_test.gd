@@ -302,11 +302,19 @@ func _process(_delta: float) -> bool:
 			p.weapon = "spear"
 			var swings := 0
 			while is_instance_valid(alpha) and not alpha.is_queued_for_deletion() and swings < 100:
-				p._attack((alpha.position - p.position).normalized())
+				p._combo = 1
+				p._strike((alpha.position - p.position).normalized())
 				p.position = alpha.position + Vector2(30, 0)
 				swings += 1
 			print("alpha down after ", swings, " swings; wolves now: ", get_nodes_in_group("wolf").size())
 			assert("alpha" in main.bosses_killed)
+			# a click queues a swing that winds up, strikes, then recovers
+			p.weapon = "spear"
+			p._attack(Vector2.RIGHT)
+			assert(p._buffer > 0.0)
+		476:
+			print("swing state a few frames after a click: ", p._atk_state, " combo ", p._combo)
+			assert(p._combo == 1 and p._atk_state != "")
 			Engine.time_scale = 1.0
 		500:
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())

@@ -46,6 +46,10 @@ var _moving := false
 var _print_dist := 0.0
 var _windup := 0.0
 var _kb := Vector2.ZERO
+var _recover := 0.0      # standing still after an attack: free hits for you
+var _freeze := 0.0       # hitstop
+var _flash := 0.0        # white flash when hit
+var _poise_hits := 0
 
 
 func _ready() -> void:
@@ -73,6 +77,10 @@ func reach() -> float:
 	return 18.0 * float(_v["scale"])
 
 
+func freeze(t: float) -> void:
+	_freeze = t
+
+
 func knock(v: Vector2) -> void:
 	_kb = v * (0.12 if is_boss() else 0.35)
 
@@ -84,6 +92,15 @@ func _process(delta: float) -> void:
 	_back_off -= delta
 	_angry = maxf(_angry - delta, 0.0)
 	_hurt = maxf(_hurt - delta, 0.0)
+	_flash = maxf(_flash - delta, 0.0)
+	if _freeze > 0.0:
+		_freeze -= delta
+		queue_redraw()
+		return
+	if _recover > 0.0:
+		_recover -= delta
+		queue_redraw()
+		return
 	if _kb.length() > 5.0:
 		position += _kb * delta
 		_kb = _kb.move_toward(Vector2.ZERO, 1500.0 * delta)
@@ -104,12 +121,13 @@ func _process(delta: float) -> void:
 			main.audio.play("bite", position, 2.0, 0.0, 0.6)
 			main.shake(9.0)
 			main.puff(position, Color(0.95, 0.95, 1.0), 16, 120.0)
-			if dist < reach() + 8.0 and not player.is_dodging():
-				player.take_damage(float(_v["dmg"]), "a %s" % display_name, true, true)
-			else:
-				main.float_text(player.position + Vector2(0, -24), "dodged!", Color(0.7, 0.95, 1.0))
+			if dist < reach() + 8.0:
+				if player.is_dodging():
+					player.on_dodged()
+				else:
+					player.take_damage(float(_v["dmg"]), "a %s" % display_name, true, true)
 			_swipe_cd = SWIPE_COOLDOWN * (0.8 if is_boss() else 1.0)
-			_back_off = 0.5
+			_recover = 0.8
 	elif _back_off > 0.0:
 		vel = -dir_p * ROAM_SPEED * 1.5
 	elif is_boss() and position.distance_to(home) > 600.0:
@@ -151,13 +169,16 @@ func _process(delta: float) -> void:
 
 func take_hit(player, damage: float = 1.0) -> void:
 	hp -= damage
-	_hurt = 0.1 if is_boss() else 0.2
+	_flash = 0.07
+	_poise_hits += 1
+	if not is_boss() and _windup <= 0.0 and _poise_hits >= 3:
+		_poise_hits = 0
+		_hurt = 0.12
 	_angry = 20.0
 	main.float_text(position + Vector2(0, -16 * float(_v["scale"])), str(snappedf(damage, 0.1)), Color(1, 0.9, 0.5))
 	main.audio.play("hit", position)
 	main.audio.play("bite", position, -2.0, 0.0, 0.55)
 	main.puff(position + Vector2(0, -10), Color(0.95, 0.93, 0.85), 10, 60.0)
-	main.shake(3.0)
 	if hp <= 0:
 		main.spawn_loot(position, _v["loot"].duplicate())
 		main.stats["bears"] += 1
@@ -184,6 +205,8 @@ func _draw() -> void:
 	var flip := -1.0 if facing.x < 0.0 else 1.0
 	draw_set_transform(Vector2.ZERO, 0, Vector2(sc * flip, sc))
 	var tint: Color = Color(1, 0.55, 0.55) if _hurt > 0.0 else _v.get("tint", Color(1, 1, 1))
+	if _flash > 0.0:
+		tint = Color(3, 3, 3)
 	var frame := (int(_anim) % 2) if _moving else 0
 	var rear := Vector2(0, -3) if _windup > 0.0 else Vector2.ZERO
 	draw_texture(TEX[frame], Vector2(-15, -15) + rear, tint)

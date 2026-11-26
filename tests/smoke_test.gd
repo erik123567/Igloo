@@ -321,9 +321,9 @@ func _process(_delta: float) -> bool:
 			p._update_attack(0.1)
 			print("swing state after wind-up: ", p._atk_state)
 			assert(p._atk_state == "recovery")
-			p._attack(Vector2.RIGHT)   # buffered during recovery
-			p._update_attack(0.3)
-			p._update_attack(0.0)
+			p._update_attack(0.2)
+			p._attack(Vector2.RIGHT)   # clicked near the end of recovery: buffered
+			p._update_attack(0.05)
 			assert(p._atk_state == "startup" and p._combo == 2)
 		500:
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())

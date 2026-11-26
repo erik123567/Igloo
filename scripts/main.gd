@@ -518,7 +518,7 @@ func _spawn_predators() -> void:
 			continue
 		var alive := false
 		for n in get_tree().get_nodes_in_group("boss"):
-			if n.variant == bdef["variant"]:
+			if n.variant == bdef["variant"] and not n.is_queued_for_deletion():
 				alive = true
 		if not alive:
 			var boss = (WolfScript if bdef["kind"] == "wolf" else BearScript).new()
@@ -960,7 +960,8 @@ func _finish_sleep() -> void:
 	for c in get_tree().get_nodes_in_group("cabin"):
 		c.stove_fuel = maxf(c.stove_fuel - skipped * DAY_LENGTH * 0.5, 0.0)
 	for w in get_tree().get_nodes_in_group("wolf"):
-		w.queue_free()
+		if not w.resident:
+			w.queue_free()
 	if weather.is_storm():
 		weather.end_storm(true)
 	var sleep_msg: String = player.apply_sleep(had_fire)

@@ -6,7 +6,7 @@ var shooter
 var dir := Vector2.RIGHT
 var speed := 430.0
 var life := 0.8
-var damage := 2
+var damage := 10.0
 
 
 func _ready() -> void:
@@ -26,7 +26,7 @@ func _process(delta: float) -> void:
 		if n.is_queued_for_deletion():
 			continue
 		if position.distance_to(n.position + Vector2(0, -5)) < n.hit_radius + 6.0:
-			n.take_hit(shooter, damage * shooter.damage_mult())
+			n.take_hit(shooter, damage)
 			queue_free()
 			return
 

@@ -64,7 +64,7 @@ func take_hit(player, _damage: float = 1.0) -> void:
 	main.puff(position, Color(0.8, 0.74, 0.66), 10, 60.0)
 	main.spawn_loot(position, {"raw_meat": 1, "hide": 1} if randf() < 0.5 else {"raw_meat": 1})
 	main.stats["hares"] += 1
-	player.add_xp("hunting", 8)
+	player.gain_xp(5)
 	main.hud.show_toast("Caught a hare! Pick up the meat (E).")
 	queue_free()
 

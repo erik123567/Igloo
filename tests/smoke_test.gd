@@ -80,7 +80,6 @@ func _process(_delta: float) -> bool:
 			p._cook()
 			p._eat()
 			p._eat()
-			p._attack()
 			for f in get_nodes_in_group("fire"):
 				f.interact(p)
 		25:
@@ -100,19 +99,21 @@ func _process(_delta: float) -> bool:
 			p.weapon = "bow"
 			var w0 = test_wolf
 			w0.position = p.position + Vector2(70, 0)
-			p.facing = Vector2.RIGHT
-			p._attack()
+			p.attack_order(w0)
 		66:
-			var w0 = test_wolf
-			print("wolf hp after arrow: ", w0.hp)
-			assert(w0.hp < 3)
-			for i in 3:
-				for w in get_nodes_in_group("wolf"):
-					w.take_hit(p, 2)
+			print("bow swing started: ", p._swing_t, " target ok: ", p.order_target == test_wolf)
+			assert(p.order_target == test_wolf)
 			main.weather.start_storm("hail")
 			main.weather.hail = 1.0
 			hail_start = p.health
 		120:
+			if is_instance_valid(test_wolf) and not test_wolf.is_queued_for_deletion():
+				print("wolf hp after arrow: ", test_wolf.hp)
+				assert(test_wolf.hp < 110.0)
+			for w in get_nodes_in_group("wolf"):
+				if not w.is_boss() and w.position.distance_to(p.position) < 1200.0:
+					w.take_hit(p, 99999.0)
+			print("level after wolves: ", p.level, " xp ", p.xp)
 			print("health after 1s of hail outside: ", hail_start, " -> ", p.health)
 			assert(p.health < hail_start)
 			main.weather.start_storm("blizzard")
@@ -122,7 +123,7 @@ func _process(_delta: float) -> bool:
 			print("body temp after 1s of blizzard: ", temp_start, " -> ", p.temp)
 			for ig in get_nodes_in_group("igloo"):
 				p.position = ig.position
-			p.health = 100.0
+			p.health = p.max_health
 		185:
 			# build the whole cabin and sleep in it instead
 			p.inventory["logs"] = 40
@@ -154,14 +155,14 @@ func _process(_delta: float) -> bool:
 				wkinds[w.variant] = int(wkinds.get(w.variant, 0)) + 1
 			print("bear kinds: ", kinds, " wolf kinds: ", wkinds)
 			assert(kinds.get("great", 0) > 0 and wkinds.get("frost", 0) > 0 and wkinds.get("dire", 0) > 0)
-			var hunting_before: int = p.skills["hunting"]["xp"] + p.skills["hunting"]["level"] * 1000
+			var xp_before: int = p.xp + p.level * 100000
 			var hits := 0
 			while is_instance_valid(bear) and not bear.is_queued_for_deletion() and hits < 60:
-				bear.take_hit(p, 2.0)
+				bear.take_hit(p, 50.0)
 				hits += 1
 			print("bear (", bear.variant if is_instance_valid(bear) else "?", ") down after ", hits, " hits")
 			assert(not is_instance_valid(bear) or bear.is_queued_for_deletion())
-			assert(p.skills["hunting"]["xp"] + p.skills["hunting"]["level"] * 1000 > hunting_before)
+			assert(p.xp + p.level * 100000 > xp_before)
 		200:
 			main.try_sleep()
 		300:
@@ -246,10 +247,10 @@ func _process(_delta: float) -> bool:
 			assert(p.inventory["logs"] > 0)
 		460:
 			# progression: skills, armor, polar coat, steel tools
-			var lv0: int = p.skill("toughness")
-			p.add_xp("toughness", 5000)
-			print("toughness ", lv0, " -> ", p.skill("toughness"), " max health ", p.max_health)
-			assert(p.skill("toughness") > lv0 and p.max_health > 100.0)
+			var lv0: int = p.level
+			p.gain_xp(100000)
+			print("level ", lv0, " -> ", p.level, " max health ", p.max_health, " damage ", p.damage_range())
+			assert(p.level == 30 and p.max_health > 600.0)
 			for st in get_nodes_in_group("structure"):
 				if st.kind == "workbench":
 					p.position = st.position + Vector2(0, 40)
@@ -277,17 +278,13 @@ func _process(_delta: float) -> bool:
 			p.health = p.max_health
 			var h0: float = p.health
 			p.take_damage(10.0, "a test", false, true)
-			print("10 damage with frost armor took ", h0 - p.health)
-			assert(absf((h0 - p.health) - 4.5) < 0.6)
-			# a dodge roll avoids the hit entirely
-			p.dodge()
-			h0 = p.health
-			p.take_damage(10.0, "a test", false, true)
-			assert(p.health == h0)
+			var expect: float = 10.0 * (1.0 - p.armor_reduction(p.armor_value()))
+			print("10 damage with ", p.armor_value(), " armor took ", h0 - p.health)
+			assert(absf((h0 - p.health) - expect) < 0.01 and expect < 5.0)
 			main.save_game()
 			p.armor = 0
 			main.load_game(main.read_save())
-			assert(p.armor == 3 and p.skill("toughness") > 1)
+			assert(p.armor == 3 and p.level == 30)
 		470:
 			# bosses: one per zone, with a big health bar; beating one is remembered
 			var bosses := get_nodes_in_group("boss")
@@ -302,29 +299,34 @@ func _process(_delta: float) -> bool:
 			p.weapon = "spear"
 			var swings := 0
 			while is_instance_valid(alpha) and not alpha.is_queued_for_deletion() and swings < 100:
-				p._combo = 1
-				p._strike((alpha.position - p.position).normalized())
+				alpha.take_hit(p, 200.0)
 				p.position = alpha.position + Vector2(30, 0)
 				swings += 1
 			print("alpha down after ", swings, " swings; wolves now: ", get_nodes_in_group("wolf").size())
 			assert("alpha" in main.bosses_killed)
-			# a click queues a swing that winds up, strikes, then recovers
-			p.weapon = "spear"
+			# attack order: walk up, wind up, and the blow lands at the damage point
+			p.weapon = "axe"
 			p.position = Vector2(3000, 4000)
-			p._atk_state = ""
-			p._dodge = 0.0   # the perfect dodge above slowed time, so the roll may not be over yet
-			p._freeze = 0.0
-			p._combo_t = 0.0
-			p._attack(Vector2.RIGHT)
-			p._update_attack(0.0)
-			assert(p._atk_state == "startup" and p._combo == 1)
-			p._update_attack(0.1)
-			print("swing state after wind-up: ", p._atk_state)
-			assert(p._atk_state == "recovery")
-			p._update_attack(0.2)
-			p._attack(Vector2.RIGHT)   # clicked near the end of recovery: buffered
-			p._update_attack(0.05)
-			assert(p._atk_state == "startup" and p._combo == 2)
+			var w = load("res://scripts/wolf.gd").new()
+			w.main = main
+			w.position = p.position + Vector2(30, 0)
+			main.world.add_child(w)
+			p._atk_cd = 0.0
+			p.attack_order(w)
+			p._update_combat(0.0)
+			assert(p._swing_t == 0.0)
+			p._update_combat(0.2)
+			assert(w.hp == w.max_hp())   # not yet: the damage point is 0.35s in
+			p._update_combat(0.2)
+			print("wolf hp after one axe blow: ", w.hp, " / ", w.max_hp())
+			assert(w.hp < w.max_hp() and p._swing_t < 0.0)
+			# moving before the damage point cancels the swing
+			p._atk_cd = 0.0
+			p._update_combat(0.0)
+			var hp_before: float = w.hp
+			p._cancel_swing()
+			p._update_combat(0.4)
+			assert(w.hp == hp_before)
 		500:
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())
 			return true

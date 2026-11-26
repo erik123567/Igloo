@@ -19,9 +19,9 @@ const HUNGER_SPRINT_EXTRA := 0.3
 const ENERGY_SPRINT_COST := 9.0    # energy per second while sprinting
 const ENERGY_REST_REGEN := 3.0     # energy per second while standing still
 const ENERGY_FIRE_BONUS := 3.0     # extra energy per second resting by a fire
-const FREEZE_DAMAGE := 2.5         # health per second when body temp is 0
-const STARVE_DAMAGE := 1.2         # health per second when hunger is 0
-const HEAL_RATE := 0.6             # health per second when warm and fed
+const FREEZE_DAMAGE := 5.0         # health per second when body temp is 0
+const STARVE_DAMAGE := 2.4         # health per second when hunger is 0
+const HEAL_RATE := 1.2             # health per second when warm and fed
 
 const TEX := {
 	"down": [preload("res://art/player_down_0.png"), preload("res://art/player_down_1.png"), preload("res://art/player_down_2.png")],
@@ -34,16 +34,20 @@ var main
 var temp := 85.0      # body temperature, 0 = freezing
 var hunger := 90.0    # 100 = full, 0 = starving
 var energy := 100.0
-var health := 100.0
-var max_health := 100.0
-var armor := 0               # 0 none, 1 bone, 2 iron, 3 frost
+var health := 200.0
+var max_health := 200.0
+var armor := 0               # armor piece worn: 0 none, 1 bone, 2 iron, 3 frost king
+
+## Character level (1 to 30) from XP, mostly from kills. Each level: +14 HP, +1 damage,
+## +0.3 armor, +2% attack speed.
+var level := 1
+var xp := 0
+const MAX_LEVEL := 30
 
 ## Skills level up with XP as you play (1 to 10).
 var skills := {
 	"survival": {"level": 1, "xp": 0},    # time spent out in the cold: lose less body heat
-	"hunting": {"level": 1, "xp": 0},     # killing animals: hit harder
 	"gathering": {"level": 1, "xp": 0},   # chopping and gathering: use less energy
-	"toughness": {"level": 1, "xp": 0},   # taking hits and surviving nights: more max health
 }
 const MAX_SKILL := 10
 var _cold_xp := 0.0
@@ -70,20 +74,16 @@ var warmth_source := ""     # "fire", "igloo" or ""
 var dead := false
 
 var _action_cd := 0.0
-var _attack_cd := 0.0
 var _swing := 0.0
 const SWING_TIME := 0.16
 var velocity := Vector2.ZERO
 var _aim_lock := 0.0        # after an attack you keep facing the way you struck
 var _swing_dir := Vector2.RIGHT
-var _atk_state := ""        # "", "startup" or "recovery"
-var _atk_t := 0.0
-var _buffer := 0.0          # a click you made a moment ago, waiting for the current swing to end
-var _buffer_aim := Vector2.ZERO
-var _combo := 0             # 1, 2 or 3: which hit of the combo this is
-var _combo_t := 0.0
-var _freeze := 0.0          # hitstop
-var _crit := false          # next hit is a critical (after a perfect dodge)
+var order_target = null     # the animal you've been told to attack
+var move_target = null      # a spot you clicked to walk to
+var _atk_cd := 0.0          # time until you can start another attack
+var _swing_t := -1.0        # time into the current swing, -1 when not swinging
+var _swing_target = null
 var _hurt := 0.0
 var _walk := 0.0
 var _light: PointLight2D
@@ -91,20 +91,16 @@ var _step_dist := 0.0
 var _step_left := false
 var _breath := 0.0
 var _hail_tick := 0.0
-var _dodge := 0.0           # seconds left in a dodge roll (can't be hit)
-var _dodge_cd := 0.0
-var _dodge_dir := Vector2.DOWN
-const DODGE_TIME := 0.28
-const DODGE_SPEED := 430.0
-const DODGE_ENERGY := 4.0
-const PERFECT_WINDOW := 0.12        # dodge this close to a hit for slow-mo and a critical
-## Swing timing per weapon: wind-up, recovery (seconds), arc (radians), extra reach.
-const SWINGS := {
-	"hands": {"startup": 0.05, "recovery": 0.15, "arc": 1.0, "reach": 0.0},
-	"spear": {"startup": 0.08, "recovery": 0.22, "arc": 0.6, "reach": 26.0},
+## Weapons: damage range by tier (index 0 = fists), seconds between attacks,
+## the damage point (when in the swing the blow lands) and reach.
+const WEAPONS := {
+	"hands": {"dmg": [[4, 6]], "cooldown": 1.7, "point": 0.35, "range": 34.0},
+	"axe": {"dmg": [[4, 6], [9, 12], [13, 16], [18, 23], [27, 33]], "cooldown": 1.6, "point": 0.35, "range": 36.0},
+	"spear": {"dmg": [[4, 6], [10, 13], [12, 15], [19, 24], [27, 33]], "cooldown": 1.8, "point": 0.4, "range": 58.0},
+	"bow": {"dmg": [[10, 14]], "cooldown": 2.0, "point": 0.45, "range": 260.0},
 }
-const COMBO_MULT := [1.0, 1.0, 1.8]
-const BUFFER_TIME := 0.15
+## Armor points: worn armor piece, plus coats.
+const ARMOR_POINTS := [0.0, 4.0, 7.0, 10.0]
 
 
 func _ready() -> void:
@@ -139,27 +135,12 @@ func _process(delta: float) -> void:
 	main.update_camera(delta)
 	if dead or main.game_over or main.sleeping:
 		return
-	if _freeze > 0.0:
-		_freeze -= delta
-		queue_redraw()
-		return
-	_update_attack(delta)
 	_action_cd = maxf(_action_cd - delta, 0.0)
-	_attack_cd = maxf(_attack_cd - delta, 0.0)
 	_swing = maxf(_swing - delta, 0.0)
 	_aim_lock = maxf(_aim_lock - delta, 0.0)
 	_hurt = maxf(_hurt - delta, 0.0)
-	_dodge_cd = maxf(_dodge_cd - delta, 0.0)
-	if _dodge > 0.0:
-		_dodge -= delta
-		var t := _dodge / DODGE_TIME   # fast at the start, easing out
-		position += _dodge_dir * DODGE_SPEED * (0.5 + t) * delta
-		position.x = clampf(position.x, 16.0, main.world_size.x - 16.0)
-		position.y = clampf(position.y, 16.0, main.shore_y + 60.0)
-		if randf() < 0.5:
-			main.puff(position + Vector2(0, 3), Color(1, 1, 1, 0.7), 2, 20.0)
-	else:
-		_move(delta)
+	_move(delta)
+	_update_combat(delta)
 	_update_stats(delta)
 	_find_target()
 	prey = _nearest_attackable(ATTACK_RANGE + 30.0)
@@ -185,6 +166,25 @@ func _move(delta: float) -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	if main.hud.craft_open:
 		dir = Vector2.ZERO  # the arrow keys scroll the crafting menu instead
+	if dir.length() > 0.1:
+		order_target = null   # steering yourself cancels any order
+		move_target = null
+		_cancel_swing()
+	elif order_target != null:
+		if not is_instance_valid(order_target) or order_target.is_queued_for_deletion():
+			order_target = null
+		else:
+			var to_t: Vector2 = order_target.position - position
+			if to_t.length() > attack_range() + order_target.hit_radius - 4.0:
+				dir = to_t.normalized()
+	elif move_target != null:
+		var to_m: Vector2 = move_target - position
+		if to_m.length() < 6.0:
+			move_target = null
+		else:
+			dir = to_m.normalized()
+	if _swing_t >= 0.0:
+		dir = Vector2.ZERO    # you stand still while swinging
 	var wants_move := dir.length() > 0.1
 	is_sprinting = wants_move and Input.is_action_pressed("sprint") and energy > 1.0
 	var speed := SPRINT_SPEED if is_sprinting else WALK_SPEED
@@ -195,8 +195,8 @@ func _move(delta: float) -> void:
 	speed *= main.weather.speed_multiplier()
 	if gear["boots"]:
 		speed *= 1.08
-	if _swing > 0.0:
-		speed *= 0.6
+	if armor >= 2:
+		speed *= 0.95
 	var want := dir.limit_length(1.0) * speed
 	# snappy: accelerate hard toward where you want to go, brake hard when you stop
 	var rate := ACCEL if wants_move else FRICTION
@@ -253,7 +253,7 @@ func _update_stats(delta: float) -> void:
 	if hail_dmg > 0.0 and not sheltered:
 		if main.under_tree(position):
 			hail_dmg *= 0.4
-		take_damage(hail_dmg * delta, "hail", false)
+		take_damage(hail_dmg * 2.0 * delta, "hail", false)
 		_hail_tick -= delta
 		if _hail_tick <= 0.0:
 			_hail_tick = 1.0
@@ -327,11 +327,26 @@ func _handle_actions() -> void:
 		elif Input.is_action_pressed("interact") and target.can_interact(self):
 			_use_target()  # holding E repeats, handy for snow blocks
 	if Input.is_action_just_pressed("attack"):
-		_attack()
-	elif Input.is_action_just_pressed("attack_mouse") and not main.hud.mouse_over_ui():
-		_attack((get_global_mouse_position() - position).normalized())
-	if Input.is_action_just_pressed("dodge"):
-		dodge()
+		var near = _nearest_attackable(220.0)
+		if near != null:
+			attack_order(near)
+		else:
+			say("Nothing to attack nearby.")
+	if not main.hud.mouse_over_ui():
+		var m := get_global_mouse_position()
+		if Input.is_action_just_pressed("attack_mouse"):
+			var a = animal_at(m)
+			if a != null:
+				attack_order(a)
+		elif Input.is_action_just_pressed("order"):
+			var a = animal_at(m)
+			if a != null:
+				attack_order(a)
+			else:
+				order_target = null
+				_cancel_swing()
+				move_target = m
+				main.click_marker(m)
 	if Input.is_action_just_pressed("eat"):
 		_eat()
 	if Input.is_action_just_pressed("cook"):
@@ -354,152 +369,126 @@ func _use_target() -> void:
 
 ## Attack. With a direction (mouse click) you swing or shoot exactly that way;
 ## without one (Space) you aim at the nearest animal in front of you.
-func _attack(aim: Vector2 = Vector2.ZERO) -> void:
-	if weapon == "bow":
-		_attack_cd = 0.6
-		if inventory["arrows"] <= 0:
-			say("You're out of arrows. Craft more (Tab).")
-			return
-		inventory["arrows"] -= 1
-		var dir := aim if aim != Vector2.ZERO else facing
-		if aim == Vector2.ZERO:
-			# gentle auto-aim toward the nearest animal roughly in front of you
-			var best_d := 320.0
-			for n in get_tree().get_nodes_in_group("attackable"):
-				var to: Vector2 = n.position - position
-				if to.length() < best_d and absf(facing.angle_to(to)) < 0.5:
-					best_d = to.length()
-					dir = to.normalized()
-		facing = dir
-		_aim_lock = 0.3
-		main.audio.play("bow", null, -3.0)
-		main.shoot_arrow(position + Vector2(0, -6) + dir * 8.0, dir)
-		return
-	# melee: queue the swing; it starts as soon as the current one allows
-	_buffer = BUFFER_TIME
-	_buffer_aim = aim
+# ---------- Combat (Warcraft 3 style: orders, auto-attack, damage point) ----------
+
+func attack_order(n) -> void:
+	order_target = n
+	move_target = null
 
 
-## Runs the melee swing: wind-up, the hit, then recovery (which a dodge can cancel).
-func _update_attack(delta: float) -> void:
-	_buffer = maxf(_buffer - delta, 0.0)
-	_combo_t = maxf(_combo_t - delta, 0.0)
-	if _atk_state != "":
-		_atk_t -= delta
-		if _atk_t <= 0.0:
-			if _atk_state == "startup":
-				_strike(_swing_dir)
-				_atk_state = "recovery"
-				_atk_t = SWINGS.get(weapon, SWINGS["hands"])["recovery"]
-			else:
-				_atk_state = ""
-				_combo_t = 0.5
-	if _atk_state == "" and _buffer > 0.0 and weapon != "bow" and _dodge <= 0.0:
-		_buffer = 0.0
-		_begin_swing(_buffer_aim)
-
-
-func _begin_swing(aim: Vector2) -> void:
-	var sw: Dictionary = SWINGS.get(weapon, SWINGS["hands"])
-	var dir := aim
-	if dir == Vector2.ZERO:
-		var best = _nearest_attackable(ATTACK_RANGE + float(sw["reach"]) + 20.0)
-		dir = (best.position - position).normalized() if best != null else facing
-	_combo = (_combo % 3) + 1 if _combo_t > 0.0 else 1
-	_swing_dir = dir
-	facing = dir
-	_aim_lock = 0.4
-	_atk_state = "startup"
-	_atk_t = sw["startup"]
-	velocity -= dir * 40.0   # tiny pull-back before the blow
-	energy = maxf(energy - 1.5, 0.0)
-	main.audio.play("swing", null, -4.0, 0.05, 1.0 + 0.05 * (_combo - 1))
-
-
-## The moment the blow lands: hits everything in the weapon's arc.
-func _strike(dir: Vector2) -> void:
-	var sw: Dictionary = SWINGS.get(weapon, SWINGS["hands"])
-	_swing = SWING_TIME
-	var finisher := _combo == 3
-	var reach := ATTACK_RANGE + float(sw["reach"])
-	var base := float(1 + int(tools["spear"])) if weapon == "spear" else 1.0
-	var dmg: float = base * damage_mult() * COMBO_MULT[_combo - 1]
-	if _crit:
-		dmg *= 2.0
-	velocity += dir * 180.0   # lunge into the blow
-	var hit_any := false
-	var killed := false
-	var big := false
+## The animal under (or right next to) a world point, if any.
+func animal_at(m: Vector2):
+	var best = null
+	var bd := INF
 	for n in get_tree().get_nodes_in_group("attackable"):
 		if n.is_queued_for_deletion():
 			continue
-		var to: Vector2 = n.position - position
-		if to.length() < reach + n.hit_radius and (to.length() < 12.0 + n.hit_radius * 0.5 or absf(dir.angle_to(to)) < float(sw["arc"])):
-			n.take_hit(self, dmg)
-			if n.has_method("knock"):
-				n.knock(dir * (450.0 if finisher else 250.0))
-			if n.has_method("freeze"):
-				n.freeze(0.08)
-			if n.is_queued_for_deletion():
-				killed = true
-			if n.has_method("is_boss") and n.is_boss():
-				big = true
-			main.puff(n.position + Vector2(0, -8), Color(0.9, 0.2, 0.2) if randf() < 0.5 else Color(1, 1, 1), 8, 90.0)
-			hit_any = true
-	if hit_any:
-		var stop := 0.05
-		if weapon == "spear" or finisher:
-			stop = 0.08
-		if killed or big or _crit:
-			stop = 0.12
-		_freeze = stop
-		main.audio.play("hit", null, 0.0, 0.05, 1.0 + 0.05 * (_combo - 1))
-		main.kick(dir, 6.0 if finisher else 3.0)
-		main.shake(5.0 if (finisher or killed) else 2.0)
-		velocity -= dir * 60.0   # small recoil
-		if _crit:
-			main.float_text(position + Vector2(0, -28), "CRITICAL!", Color(1, 0.85, 0.3))
-		_crit = false
+		var d: float = (n.position + Vector2(0, -6)).distance_to(m)
+		if d < n.hit_radius + 14.0 and d < bd:
+			bd = d
+			best = n
+	return best
 
 
-## Called by an enemy whose attack you just rolled through.
-func on_dodged() -> void:
-	if DODGE_TIME - _dodge <= PERFECT_WINDOW + 0.06:
-		_crit = true
-		main.slow_mo(0.3, 0.3)
-		main.float_text(position + Vector2(0, -28), "Perfect dodge!", Color(0.6, 0.95, 1.0))
-	else:
-		main.float_text(position + Vector2(0, -24), "dodged!", Color(0.7, 0.95, 1.0))
+func weapon_stats() -> Dictionary:
+	return WEAPONS.get(weapon, WEAPONS["hands"])
 
 
-## A quick roll in the direction you're moving (or facing). You can't be hurt mid-roll.
-func dodge() -> void:
-	if _dodge_cd > 0.0 or _dodge > 0.0 or _atk_state == "startup":
+func attack_range() -> float:
+	return float(weapon_stats()["range"])
+
+
+func damage_range() -> Array:
+	var w := weapon_stats()
+	var tiers: Array = w["dmg"]
+	var tier := 0
+	if weapon == "axe" or weapon == "spear":
+		tier = clampi(int(tools[weapon]), 0, tiers.size() - 1)
+	var r: Array = tiers[tier]
+	return [int(r[0]) + level - 1, int(r[1]) + level - 1]
+
+
+func attack_cooldown() -> float:
+	return float(weapon_stats()["cooldown"]) / (1.0 + 0.02 * (level - 1))
+
+
+func armor_value() -> float:
+	var a: float = ARMOR_POINTS[armor] + 0.3 * (level - 1)
+	if gear["polar_coat"]:
+		a += 3.0
+	elif gear["coat"]:
+		a += 2.0
+	return a
+
+
+## Warcraft 3's armor formula: share of damage blocked.
+static func armor_reduction(a: float) -> float:
+	return 0.06 * a / (1.0 + 0.06 * a)
+
+
+func _cancel_swing() -> void:
+	_swing_t = -1.0
+	_swing_target = null
+
+
+func _update_combat(delta: float) -> void:
+	_atk_cd = maxf(_atk_cd - delta, 0.0)
+	if _swing_t >= 0.0:
+		_swing_t += delta
+		if _swing_t >= float(weapon_stats()["point"]):
+			_land_blow()
+			_swing_t = -1.0
 		return
-	_atk_state = ""   # rolling cancels the swing's recovery
-	if energy < DODGE_ENERGY:
-		say("Too tired to dodge.")
+	if order_target == null or not is_instance_valid(order_target) or order_target.is_queued_for_deletion():
+		order_target = null
 		return
-	energy -= DODGE_ENERGY
-	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	_dodge_dir = dir.normalized() if dir.length() > 0.1 else facing
-	_dodge = DODGE_TIME
-	_dodge_cd = 0.35
-	velocity = _dodge_dir * WALK_SPEED
-	main.audio.play("swing", null, -8.0, 0.0, 0.7)
+	var to_t: Vector2 = order_target.position - position
+	if to_t.length() <= attack_range() + order_target.hit_radius and _atk_cd <= 0.0:
+		if weapon == "bow" and inventory["arrows"] <= 0:
+			say("You're out of arrows. Craft more (Tab) or switch weapons (F).")
+			order_target = null
+			return
+		# start a swing; the blow lands at the damage point unless you move first
+		_swing_t = 0.0
+		_swing_target = order_target
+		_atk_cd = attack_cooldown()
+		facing = to_t.normalized()
+		_swing_dir = facing
+		_aim_lock = attack_cooldown()
+		if weapon != "bow":
+			main.audio.play("swing", null, -8.0, 0.1, 0.9)
+
+
+func _land_blow() -> void:
+	var t = _swing_target
+	if t == null or not is_instance_valid(t) or t.is_queued_for_deletion():
+		return
+	var dr := damage_range()
+	var dmg := float(randi_range(dr[0], dr[1]))
+	var to_t: Vector2 = t.position - position
+	if weapon == "bow":
+		inventory["arrows"] -= 1
+		main.audio.play("bow", null, -3.0)
+		main.shoot_arrow(position + Vector2(0, -6) + to_t.normalized() * 8.0, to_t.normalized(), dmg)
+		return
+	if to_t.length() > attack_range() + t.hit_radius + 16.0:
+		return   # it got away before the blow landed
+	_swing = SWING_TIME
+	main.audio.play("hit", null, -2.0, 0.1)
+	t.take_hit(self, dmg)
 
 
 func is_dodging() -> bool:
-	return _dodge > 0.0
+	return false
 
 
 func _cycle_weapon() -> void:
 	var options := ["hands"]
-	for w in ["spear", "bow"]:
+	for w in ["axe", "spear", "bow"]:
 		if tools[w]:
 			options.append(w)
 	if options.size() == 1:
-		say("You only have your hands. Craft a spear or bow (Tab).")
+		say("You only have your fists. Craft an axe, spear or bow (Tab).")
 		return
 	weapon = options[(options.find(weapon) + 1) % options.size()]
 	main.hud.show_toast("Holding: %s" % weapon.capitalize())
@@ -649,21 +638,18 @@ func say(text: String) -> void:
 	main.hud.show_message(text, 3.5)
 
 
+## Called when an animal's attack connects.
 func take_damage(amount: float, cause: String, flash: bool = true, is_attack: bool = false) -> void:
 	if dead:
 		return
 	if is_attack:
-		if _dodge > 0.0:
-			on_dodged()
-			return
-		amount *= [1.0, 0.8, 0.6, 0.45][armor]
-		main.shake(6.0)
-		add_xp("toughness", int(amount * 0.6))
+		amount *= 1.0 - armor_reduction(armor_value())
+		main.float_text(position + Vector2(0, -26), str(int(round(amount))), Color(1, 0.35, 0.3))
 	health -= amount
 	if flash:
 		_hurt = 0.3
 		main.audio.play("hurt", null, -2.0)
-		main.shake(5.0)
+		main.shake(3.0)
 		main.hud.flash_damage()
 	if health <= 0.0:
 		health = 0.0
@@ -676,8 +662,7 @@ func take_damage(amount: float, cause: String, flash: bool = true, is_attack: bo
 func apply_sleep(had_fire: bool) -> String:
 	energy = 100.0
 	hunger = maxf(hunger - 25.0, 0.0)
-	health = minf(health + 15.0, max_health)
-	add_xp("toughness", 15)
+	health = minf(health + 40.0, max_health)
 	if had_fire:
 		temp = maxf(temp, 75.0)
 		return "You slept warm beside the fire."
@@ -697,8 +682,6 @@ func _draw() -> void:
 	var tint := Color(1, 1, 1)
 	if _hurt > 0.0:
 		tint = Color(1, 0.45, 0.45)
-	if _dodge > 0.0:
-		tint = Color(0.75, 0.9, 1.0, 0.6)
 	if dead:
 		draw_set_transform(Vector2(0, -2), PI / 2, Vector2.ONE)
 		draw_texture(TEX["down"][0], Vector2(-8, -9), Color(0.8, 0.8, 0.9))
@@ -721,7 +704,11 @@ func _draw() -> void:
 	var behind := view == "up"
 	if behind:
 		_draw_held()
-	draw_texture(TEX[view][frame], Vector2(-8, -15), tint)
+	var wind := Vector2.ZERO
+	if _swing_t >= 0.0:
+		# lean back while winding up the blow
+		wind = Vector2(-2.0 * minf(_swing_t / float(weapon_stats()["point"]), 1.0), 0) if view == "side" else Vector2.ZERO
+	draw_texture(TEX[view][frame], Vector2(-8, -15) + wind, tint)
 	if not behind:
 		_draw_held()
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
@@ -774,11 +761,29 @@ func xp_needed(level: int) -> int:
 	return int(40.0 * pow(level, 1.5))
 
 
-func damage_mult() -> float:
-	return 1.0 + 0.12 * (skill("hunting") - 1)
+func xp_to_next() -> int:
+	return 80 * level
+
+
+## Character XP, mostly from kills.
+func gain_xp(amount: int) -> void:
+	if level >= MAX_LEVEL or amount <= 0:
+		return
+	xp += amount
+	main.float_text(position + Vector2(0, -34), "+%d xp" % amount, Color(0.75, 0.6, 1.0))
+	while level < MAX_LEVEL and xp >= xp_to_next():
+		xp -= xp_to_next()
+		level += 1
+		max_health = 200.0 + 14.0 * (level - 1)
+		health = minf(health + 40.0, max_health)
+		main.audio.play("chime", null, -4.0, 0.0)
+		main.puff(position + Vector2(0, -10), Color(1, 0.9, 0.4), 20, 80.0)
+		main.hud.show_message("Level %d! Max health %d, damage +%d, armor +%.1f." % [level, int(max_health), level - 1, 0.3 * (level - 1)], 5.0)
 
 
 func add_xp(name: String, amount: int) -> void:
+	if not skills.has(name):
+		return
 	if amount <= 0 or skill(name) >= MAX_SKILL:
 		return
 	var sk: Dictionary = skills[name]
@@ -794,13 +799,7 @@ func _on_level_up(name: String, level: int) -> void:
 	match name:
 		"survival":
 			what = "you lose %d%% less body heat" % (4 * (level - 1))
-		"hunting":
-			what = "you hit %d%% harder" % (12 * (level - 1))
 		"gathering":
 			what = "gathering takes %d%% less energy" % (6 * (level - 1))
-		"toughness":
-			max_health = 100.0 + 10.0 * (level - 1)
-			health = minf(health + 10.0, max_health)
-			what = "max health is now %d" % int(max_health)
 	main.audio.play("chime", null, -6.0, 0.0)
 	main.hud.show_message("%s is now level %d: %s." % [name.capitalize(), level, what], 5.0)

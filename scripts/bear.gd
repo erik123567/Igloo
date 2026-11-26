@@ -5,17 +5,17 @@ extends Node2D
 const TEX := [preload("res://art/bear_0.png"), preload("res://art/bear_1.png")]
 
 const VARIANTS := {
-	"polar": {"name": "polar bear", "hp": 12.0, "dmg": 28.0, "speed": 125.0, "scale": 2.0, "tint": Color(1, 1, 1),
-		"loot": {"raw_meat": 5, "hide": 3, "bone": 2, "white_fur": 2}, "xp": 80},
-	"great": {"name": "great white bear", "hp": 30.0, "dmg": 45.0, "speed": 140.0, "scale": 2.7, "tint": Color(0.92, 0.97, 1.1),
-		"loot": {"raw_meat": 8, "hide": 4, "bone": 4, "white_fur": 4, "steel": 1}, "xp": 220},
-	# Bosses: the tundra's old king and the ruler of the far north. Their swipes hit an area.
-	"tusk": {"name": "Old Tusk", "hp": 70.0, "dmg": 40.0, "speed": 135.0, "scale": 3.2, "tint": Color(0.85, 0.78, 0.62),
-		"loot": {"great_claw": 1, "raw_meat": 10, "hide": 5, "bone": 6, "white_fur": 4, "steel": 2}, "xp": 450, "boss": true},
-	"king": {"name": "The White King", "hp": 160.0, "dmg": 55.0, "speed": 150.0, "scale": 4.0, "tint": Color(0.82, 0.92, 1.25),
-		"loot": {"king_pelt": 1, "raw_meat": 12, "white_fur": 8, "steel": 5}, "xp": 1000, "boss": true},
+	"polar": {"name": "polar bear", "hp": 480.0, "dmg": [24, 32], "cd": 2.0, "armor": 4.0, "speed": 130.0, "scale": 2.0, "tint": Color(1, 1, 1),
+		"loot": {"raw_meat": 5, "hide": 3, "bone": 2, "white_fur": 2}, "xp": 120},
+	"great": {"name": "great white bear", "hp": 900.0, "dmg": [32, 42], "cd": 2.0, "armor": 6.0, "speed": 135.0, "scale": 2.7, "tint": Color(0.92, 0.97, 1.1),
+		"loot": {"raw_meat": 8, "hide": 4, "bone": 4, "white_fur": 4, "steel": 1}, "xp": 250},
+	# Bosses: the tundra's old king and the ruler of the far north.
+	"tusk": {"name": "Old Tusk", "hp": 2000.0, "dmg": [34, 44], "cd": 2.0, "armor": 7.0, "speed": 135.0, "scale": 3.2, "tint": Color(0.85, 0.78, 0.62),
+		"loot": {"great_claw": 1, "raw_meat": 10, "hide": 5, "bone": 6, "white_fur": 4, "steel": 2}, "xp": 900, "boss": true},
+	"king": {"name": "The White King", "hp": 2600.0, "dmg": [40, 55], "cd": 2.2, "armor": 8.0, "speed": 135.0, "scale": 4.0, "tint": Color(0.82, 0.92, 1.25),
+		"loot": {"king_pelt": 1, "raw_meat": 12, "white_fur": 8, "steel": 5}, "xp": 1500, "boss": true},
 }
-const WINDUP := 0.7           # bears rear up before they swipe: dodge out of the red circle
+const WINDUP := 0.6           # bears rear up before they swipe (the damage point)
 
 # ---------- Tuning ----------
 const ROAM_SPEED := 35.0
@@ -93,20 +93,6 @@ func _process(delta: float) -> void:
 	_angry = maxf(_angry - delta, 0.0)
 	_hurt = maxf(_hurt - delta, 0.0)
 	_flash = maxf(_flash - delta, 0.0)
-	if _freeze > 0.0:
-		_freeze -= delta
-		queue_redraw()
-		return
-	if _recover > 0.0:
-		_recover -= delta
-		queue_redraw()
-		return
-	if _kb.length() > 5.0:
-		position += _kb * delta
-		_kb = _kb.move_toward(Vector2.ZERO, 1500.0 * delta)
-	if _hurt > 0.0 and _windup <= 0.0:
-		queue_redraw()
-		return
 	var player = main.player
 	var to_p: Vector2 = player.position - position
 	var dist := to_p.length()
@@ -119,24 +105,21 @@ func _process(delta: float) -> void:
 		_windup -= delta
 		if _windup <= 0.0:
 			main.audio.play("bite", position, 2.0, 0.0, 0.6)
-			main.shake(9.0)
-			main.puff(position, Color(0.95, 0.95, 1.0), 16, 120.0)
-			if dist < reach() + 8.0:
-				if player.is_dodging():
-					player.on_dodged()
-				else:
-					player.take_damage(float(_v["dmg"]), "a %s" % display_name, true, true)
-			_swipe_cd = SWIPE_COOLDOWN * (0.8 if is_boss() else 1.0)
-			_recover = 0.8
+			main.shake(4.0)
+			main.puff(position, Color(0.95, 0.95, 1.0), 12, 100.0)
+			if dist < reach() + 20.0 and not player.dead:
+				var d: Array = _v["dmg"]
+				player.take_damage(float(randi_range(d[0], d[1])), "a %s" % display_name, true, true)
 	elif _back_off > 0.0:
 		vel = -dir_p * ROAM_SPEED * 1.5
 	elif is_boss() and position.distance_to(home) > 600.0:
 		vel = (home - position).normalized() * float(_v["speed"])
 		hp = minf(hp + delta * 4.0, max_hp())
 	elif dist < sense and not player.dead and not main.is_safe_spot(player.position):
-		vel = dir_p * float(_v["speed"])
-		if dist < reach() * 0.8 and _swipe_cd <= 0.0:
-			_windup = WINDUP * (0.85 if variant == "king" else 1.0)
+		vel = dir_p * float(_v["speed"]) if dist > reach() * 0.7 else Vector2.ZERO
+		if dist < reach() and _swipe_cd <= 0.0:
+			_windup = WINDUP
+			_swipe_cd = float(_v["cd"])
 			vel = Vector2.ZERO
 			main.audio.play("bite", position, -4.0, 0.0, 0.45)
 	else:
@@ -168,28 +151,25 @@ func _process(delta: float) -> void:
 
 
 func take_hit(player, damage: float = 1.0) -> void:
+	damage = maxf(damage * (1.0 - player.armor_reduction(float(_v["armor"]))), 1.0)
 	hp -= damage
 	_flash = 0.07
-	_poise_hits += 1
-	if not is_boss() and _windup <= 0.0 and _poise_hits >= 3:
-		_poise_hits = 0
-		_hurt = 0.12
+	_hurt = 0.15
 	_angry = 20.0
-	main.float_text(position + Vector2(0, -16 * float(_v["scale"])), str(snappedf(damage, 0.1)), Color(1, 0.9, 0.5))
+	main.float_text(position + Vector2(0, -16 * float(_v["scale"])), str(int(round(damage))), Color(1, 0.9, 0.5))
 	main.audio.play("hit", position)
-	main.audio.play("bite", position, -2.0, 0.0, 0.55)
 	main.puff(position + Vector2(0, -10), Color(0.95, 0.93, 0.85), 10, 60.0)
 	if hp <= 0:
 		main.spawn_loot(position, _v["loot"].duplicate())
 		main.stats["bears"] += 1
-		player.add_xp("hunting", int(_v["xp"]))
+		player.gain_xp(int(_v["xp"]))
 		if is_boss():
 			main.boss_defeated(variant, display_name)
 		else:
 			main.hud.show_message("You brought down a %s!" % display_name, 4.0)
 		queue_free()
 	else:
-		main.hud.show_toast("You hit the %s! It's angry now." % display_name)
+		pass
 
 
 func _draw() -> void:
@@ -211,5 +191,9 @@ func _draw() -> void:
 	var rear := Vector2(0, -3) if _windup > 0.0 else Vector2.ZERO
 	draw_texture(TEX[frame], Vector2(-15, -15) + rear, tint)
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	if main.player.order_target == self:
+		draw_set_transform(Vector2(0, 2), 0, Vector2(1, 0.5))
+		draw_arc(Vector2.ZERO, hit_radius + 8.0, 0, TAU, 28, Color(1, 0.2, 0.15, 0.9), 1.5)
+		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	if hp < max_hp() and not is_boss():
 		main.draw_bar(self, Vector2(0, -17 * sc), 18.0 * sc, hp / max_hp(), Color(0.9, 0.25, 0.25))

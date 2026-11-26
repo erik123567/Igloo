@@ -14,17 +14,17 @@ const TEX := [preload("res://art/wolf_0.png"), preload("res://art/wolf_1.png")]
 
 ## Wolf types, from the coast to the far north: hp, bite damage, chase speed, sense range, size, colour, loot, XP.
 const VARIANTS := {
-	"wolf": {"name": "wolf", "hp": 3.0, "dmg": 12.0, "speed": 150.0, "sense": 340.0, "scale": 1.0,
-		"tint": Color(1, 1, 1), "loot": {"raw_meat": 2, "hide": 1, "bone": 1}, "xp": 25},
-	"dire": {"name": "dire wolf", "hp": 7.0, "dmg": 18.0, "speed": 165.0, "sense": 380.0, "scale": 1.3,
-		"tint": Color(0.55, 0.5, 0.48), "loot": {"raw_meat": 3, "hide": 2, "bone": 2}, "xp": 55},
-	"frost": {"name": "frost wolf", "hp": 11.0, "dmg": 24.0, "speed": 180.0, "sense": 420.0, "scale": 1.4,
-		"tint": Color(0.8, 0.92, 1.25), "loot": {"raw_meat": 3, "hide": 2, "bone": 2, "white_fur": 1}, "xp": 90},
+	"wolf": {"name": "wolf", "hp": 110.0, "dmg": [8, 11], "cd": 1.4, "armor": 0.0, "speed": 155.0, "sense": 340.0, "scale": 1.0,
+		"tint": Color(1, 1, 1), "loot": {"raw_meat": 2, "hide": 1, "bone": 1}, "xp": 20},
+	"dire": {"name": "dire wolf", "hp": 220.0, "dmg": [14, 18], "cd": 1.4, "armor": 2.0, "speed": 165.0, "sense": 380.0, "scale": 1.3,
+		"tint": Color(0.55, 0.5, 0.48), "loot": {"raw_meat": 3, "hide": 2, "bone": 2}, "xp": 45},
+	"frost": {"name": "frost wolf", "hp": 340.0, "dmg": [18, 24], "cd": 1.4, "armor": 3.0, "speed": 175.0, "sense": 420.0, "scale": 1.4,
+		"tint": Color(0.8, 0.92, 1.25), "loot": {"raw_meat": 3, "hide": 2, "bone": 2, "white_fur": 1}, "xp": 80},
 	# Boss of the boreal forest. Calls its pack when hurt.
-	"alpha": {"name": "Greymane, the pack alpha", "hp": 30.0, "dmg": 22.0, "speed": 165.0, "sense": 380.0, "scale": 1.9,
-		"tint": Color(0.42, 0.42, 0.48), "loot": {"alpha_fang": 1, "raw_meat": 5, "hide": 4, "bone": 4, "iron": 3}, "xp": 250, "boss": true},
+	"alpha": {"name": "Greymane, the pack alpha", "hp": 1400.0, "dmg": [24, 30], "cd": 1.2, "armor": 5.0, "speed": 165.0, "sense": 380.0, "scale": 1.9,
+		"tint": Color(0.42, 0.42, 0.48), "loot": {"alpha_fang": 1, "raw_meat": 5, "hide": 4, "bone": 4, "iron": 3}, "xp": 600, "boss": true},
 }
-const WINDUP := 0.38          # seconds a wolf crouches before it lunges: your chance to dodge
+const WINDUP := 0.35          # the damage point: how long after starting a bite it lands
 
 var main
 var hp := float(MAX_HP)
@@ -76,12 +76,21 @@ func max_hp() -> float:
 	return float(_v["hp"])
 
 
+## Wolves of this pack within reach of each other (counting this one).
+func _pack_size() -> int:
+	var n := 0
+	for w in get_tree().get_nodes_in_group("wolf"):
+		if w.position.distance_to(position) < 220.0:
+			n += 1
+	return n
+
+
 func freeze(t: float) -> void:
 	_freeze = t
 
 
 func is_attacking() -> bool:
-	return _windup > 0.0 or _recover > 0.0
+	return _windup > 0.0
 
 
 func knock(v: Vector2) -> void:
@@ -100,23 +109,6 @@ func _process(delta: float) -> void:
 	_back_off -= delta
 	_hurt = maxf(_hurt - delta, 0.0)
 	_flash = maxf(_flash - delta, 0.0)
-	if _freeze > 0.0:
-		_freeze -= delta
-		queue_redraw()
-		return
-	if _recover > 0.0 and not leaving:
-		_recover -= delta
-		if _kb.length() > 5.0:
-			position += _kb * delta
-			_kb = _kb.move_toward(Vector2.ZERO, 1500.0 * delta)
-		queue_redraw()
-		return
-	if _kb.length() > 5.0:
-		position += _kb * delta
-		_kb = _kb.move_toward(Vector2.ZERO, 1500.0 * delta)
-	if _hurt > 0.0 and not leaving:
-		queue_redraw()
-		return   # stunned for a moment after a hit
 	var player = main.player
 	var to_p: Vector2 = player.position - position
 	var dist := to_p.length()
@@ -132,17 +124,12 @@ func _process(delta: float) -> void:
 		# crouched, about to lunge
 		_windup -= delta
 		facing = dir_p
-		if _windup <= 0.0:
-			position += dir_p * 14.0 * float(_v["scale"])
-			if dist < 34.0 * float(_v["scale"]):
-				if player.is_dodging():
-					player.on_dodged()
-				else:
-					main.audio.play("bite", position)
-					player.take_damage(float(_v["dmg"]), "a %s" % display_name, true, true)
-					main.hud.show_toast("The %s bites you!" % display_name)
-			_bite_cd = BITE_COOLDOWN
-			_recover = 0.5
+		if _windup <= 0.0 and dist < 26.0 * float(_v["scale"]) + 22.0 and not player.dead:
+			var d: Array = _v["dmg"]
+			main.audio.play("bite", position)
+			player.take_damage(float(randi_range(d[0], d[1])), "a %s" % display_name, true, true)
+			if variant == "frost":
+				player.temp = maxf(player.temp - 4.0, 0.0)   # frost bites chill you
 	elif _back_off > 0.0:
 		vel = -dir_p * float(_v["speed"]) * 0.9
 	elif is_boss() and position.distance_to(home) > 650.0:
@@ -150,13 +137,13 @@ func _process(delta: float) -> void:
 		vel = (home - position).normalized() * float(_v["speed"])
 		hp = minf(hp + delta * 2.0, max_hp())
 	elif dist < float(_v["sense"]) and not player.dead and not main.is_safe_spot(player.position):
-		vel = dir_p * float(_v["speed"])
-		# a pack takes turns: at most two wolves go for you at once, the rest circle
-		if dist < 110.0 and not is_boss() and main.wolves_attacking(self) >= 2:
-			vel = dir_p.orthogonal() * PROWL_SPEED * 1.6 + dir_p * (90.0 - dist)
-		elif dist < 26.0 * float(_v["scale"]) and _bite_cd <= 0.0:
+		var reach := 26.0 * float(_v["scale"])
+		vel = dir_p * float(_v["speed"]) if dist > reach * 0.8 else Vector2.ZERO
+		if hp < max_hp() * 0.2 and not is_boss() and _pack_size() < 3:
+			vel = -dir_p * float(_v["speed"])   # badly hurt and alone: it runs
+		elif dist < reach and _bite_cd <= 0.0:
 			_windup = WINDUP
-			vel = Vector2.ZERO
+			_bite_cd = float(_v["cd"])
 			main.audio.play("swing", position, -10.0, 0.0, 0.6)
 	elif dist < float(_v["sense"]):
 		# Player is safe by the fire: circle at the edge of the light, watching.
@@ -201,15 +188,12 @@ func _process(delta: float) -> void:
 
 
 func take_hit(player, damage: float = 1.0) -> void:
+	damage = maxf(damage * (1.0 - player.armor_reduction(float(_v["armor"]))), 1.0)
 	hp -= damage
 	_flash = 0.07
-	# poise: a wolf only flinches every few hits, and never mid-lunge
-	_poise_hits += 1
-	var poise := 2 if variant == "wolf" else 3
-	if not is_boss() and _windup <= 0.0 and _poise_hits >= poise:
-		_poise_hits = 0
-		_hurt = 0.12
-	main.float_text(position + Vector2(0, -20 * float(_v["scale"])), str(snappedf(damage, 0.1)), Color(1, 0.9, 0.5))
+	_hurt = 0.15
+	main.puff(position + Vector2(0, -6), Color(0.85, 0.2, 0.2), 5, 50.0)
+	main.float_text(position + Vector2(0, -20 * float(_v["scale"])), str(int(round(damage))), Color(1, 0.9, 0.5))
 	if is_boss() and _summons > 0 and hp < max_hp() * (0.33 * _summons) and hp > 0:
 		_summons -= 1
 		main.audio.play("howl", position, 0.0, 0.0)
@@ -227,14 +211,14 @@ func take_hit(player, damage: float = 1.0) -> void:
 	if hp <= 0:
 		main.spawn_loot(position, _v["loot"].duplicate())
 		main.stats["wolves"] += 1
-		player.add_xp("hunting", int(_v["xp"]))
+		player.gain_xp(int(_v["xp"]))
 		if is_boss():
 			main.boss_defeated(variant, display_name)
 		else:
 			main.hud.show_message("You killed the %s." % display_name, 3.0)
 		queue_free()
 	else:
-		main.hud.show_toast("You hit the %s!" % display_name)
+		pass
 
 
 func _draw() -> void:
@@ -254,5 +238,9 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	if _windup > 0.0:
 		draw_string(ThemeDB.fallback_font, Vector2(-3, -16 * sc - 4), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 0.25, 0.2))
+	if main.player.order_target == self:
+		draw_set_transform(Vector2(0, 2), 0, Vector2(1, 0.5))
+		draw_arc(Vector2.ZERO, hit_radius + 6.0, 0, TAU, 24, Color(1, 0.2, 0.15, 0.9), 1.5)
+		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	if hp < max_hp() and not is_boss():
 		main.draw_bar(self, Vector2(0, -15 * sc), 22.0 * sc, hp / max_hp(), Color(0.9, 0.25, 0.25))

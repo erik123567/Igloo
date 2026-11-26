@@ -73,9 +73,9 @@ const RECIPES := [
 	{"key": "boots", "gear": "boots", "bench": true, "name": "Fur boots", "cost": {"hide": 3}, "note": "10% less cold, walk a bit faster"},
 	{"key": "coat", "gear": "coat", "bench": true, "name": "Fur coat", "cost": {"hide": 5}, "note": "25% less cold"},
 	{"key": "polar_coat", "gear": "polar_coat", "needs_gear": "coat", "bench": true, "name": "Polar fur coat", "cost": {"white_fur": 4, "hide": 2}, "trophy": "great_claw", "note": "40% less cold (replaces the fur coat)"},
-	{"key": "armor_bone", "armor": 1, "bench": true, "name": "Bone armor", "cost": {"bone": 6, "hide": 2}, "note": "take 20% less damage from animals"},
-	{"key": "armor_iron", "armor": 2, "bench": true, "name": "Iron armor", "cost": {"iron": 6, "hide": 2}, "trophy": "alpha_fang", "note": "take 40% less damage from animals"},
-	{"key": "armor_frost", "armor": 3, "bench": true, "name": "Frost king armor", "cost": {"steel": 4, "white_fur": 4}, "trophy": "king_pelt", "note": "take 55% less damage. The best there is"},
+	{"key": "armor_bone", "armor": 1, "bench": true, "name": "Bone armor", "cost": {"bone": 6, "hide": 2}, "note": "+4 armor"},
+	{"key": "armor_iron", "armor": 2, "bench": true, "name": "Iron armor", "cost": {"iron": 6, "hide": 2}, "trophy": "alpha_fang", "note": "+7 armor, 5% slower"},
+	{"key": "armor_frost", "armor": 3, "bench": true, "name": "Frost king armor", "cost": {"steel": 4, "white_fur": 4}, "trophy": "king_pelt", "note": "+10 armor. The best there is"},
 	{"key": "axe_steel", "tool": "axe", "tier": 4, "bench": true, "name": "Steel axe", "cost": {"steel": 2, "logs": 1}, "trophy": "great_claw", "note": "chops four times as fast"},
 	{"key": "spear_steel", "tool": "spear", "tier": 4, "bench": true, "name": "Steel spear", "cost": {"steel": 2, "logs": 1}, "trophy": "great_claw", "note": "5 damage"},
 ]
@@ -228,7 +228,6 @@ func _setup_input() -> void:
 		"craft_7": [KEY_7],
 		"craft_8": [KEY_8],
 		"cycle_weapon": [KEY_F],
-		"dodge": [KEY_CTRL],
 		"inventory": [KEY_I],
 		"torch": [KEY_T],
 		"toggle_help": [KEY_H],
@@ -244,7 +243,7 @@ func _setup_input() -> void:
 			var ev := InputEventKey.new()
 			ev.physical_keycode = k
 			InputMap.action_add_event(action, ev)
-	for mb in [["attack_mouse", MOUSE_BUTTON_LEFT], ["dodge", MOUSE_BUTTON_RIGHT]]:
+	for mb in [["attack_mouse", MOUSE_BUTTON_LEFT], ["order", MOUSE_BUTTON_RIGHT]]:
 		if not InputMap.has_action(mb[0]):
 			InputMap.add_action(mb[0])
 		var mev := InputEventMouseButton.new()
@@ -674,6 +673,22 @@ func slow_mo(scale: float, seconds: float) -> void:
 	get_tree().create_timer(seconds, true, false, true).timeout.connect(func(): Engine.time_scale = 1.0)
 
 
+## A little green ring where you clicked to walk.
+func click_marker(pos: Vector2) -> void:
+	var m := Node2D.new()
+	m.position = pos
+	m.z_index = 5
+	m.set_meta("t", 0.0)
+	m.draw.connect(func():
+		var k: float = m.get_meta("t")
+		m.draw_set_transform(Vector2.ZERO, 0, Vector2(1, 0.5))
+		m.draw_arc(Vector2.ZERO, 8.0 * (1.0 - k * 0.6), 0, TAU, 20, Color(0.4, 1.0, 0.4, 1.0 - k), 1.5))
+	add_child(m)
+	var tw := m.create_tween()
+	tw.tween_method(func(v): m.set_meta("t", v); m.queue_redraw(), 0.0, 1.0, 0.4)
+	tw.tween_callback(m.queue_free)
+
+
 ## A quick nudge of the camera in a direction (for hits).
 func kick(dir: Vector2, amount: float) -> void:
 	_kick += dir * amount
@@ -906,7 +921,9 @@ func craft(r: Dictionary) -> void:
 			hud.show_message("Cabin site marked. Haul logs back here and hold E to build:\nfloor (6 logs), walls (10), roof and door (8 logs, 4 stone), then a stove.", 8.0)
 		"axe", "axe_bone", "axe_iron":
 			player.tools["axe"] = int(r["tier"])
-			hud.show_message("%s made. Hold E at a tree to chop it for logs." % r["name"], 5.0)
+			if player.weapon == "hands":
+				player.weapon = "axe"
+			hud.show_message("%s made. Hold E at a tree to chop it for logs. It's a decent weapon too." % r["name"], 5.0)
 		"rod":
 			player.tools["rod"] = 1
 			hud.show_message("Fishing rod made. Stand on ice (the frozen lake up north, or the sea ice by the coast) and press E.", 6.0)
@@ -953,8 +970,9 @@ func on_ice(pos: Vector2) -> bool:
 	return d.length() < 0.9
 
 
-func shoot_arrow(from: Vector2, dir: Vector2) -> void:
+func shoot_arrow(from: Vector2, dir: Vector2, dmg: float = 10.0) -> void:
 	var a = ArrowScript.new()
+	a.damage = dmg
 	a.main = self
 	a.shooter = player
 	a.dir = dir
@@ -1130,7 +1148,7 @@ func save_game() -> void:
 			"temp": player.temp, "hunger": player.hunger, "energy": player.energy, "health": player.health,
 			"inventory": player.inventory, "tools": player.tools, "gear": player.gear,
 			"weapon": player.weapon, "torch_time": player.torch_time,
-			"skills": player.skills, "armor": player.armor,
+			"skills": player.skills, "armor": player.armor, "level": player.level, "xp": player.xp,
 		},
 		"map": map, "fires": fires, "igloos": igloos, "cabin": cabin, "loot": loot,
 	}
@@ -1177,7 +1195,7 @@ func load_game(data: Dictionary) -> void:
 	player.temp = float(p.get("temp", 85.0))
 	player.hunger = float(p.get("hunger", 90.0))
 	player.energy = float(p.get("energy", 100.0))
-	player.health = float(p.get("health", 100.0))
+	player.health = float(p.get("health", 200.0))
 	var inv: Dictionary = p.get("inventory", {})
 	for k in inv:
 		player.inventory[k] = int(inv[k])
@@ -1193,7 +1211,9 @@ func load_game(data: Dictionary) -> void:
 	for k in sk:
 		if player.skills.has(k):
 			player.skills[k] = {"level": int(sk[k]["level"]), "xp": int(sk[k]["xp"])}
-	player.max_health = 100.0 + 10.0 * (player.skill("toughness") - 1)
+	player.level = int(p.get("level", 1))
+	player.xp = int(p.get("xp", 0))
+	player.max_health = 200.0 + 14.0 * (player.level - 1)
 	player.torch_time = float(p.get("torch_time", 0.0))
 
 	var map: Array = data.get("map", [])

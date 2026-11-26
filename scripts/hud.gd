@@ -13,31 +13,32 @@ const ITEM_NAMES := {
 }
 
 const HELP_TEXT := """CONTROLS  (H to hide)
-Move: WASD    Sprint: Shift
+Move: WASD, or right-click ground
+Attack: right- or left-click an
+  animal. You walk up and keep
+  attacking until it dies.
+Attack nearest animal: Space
+Sprint: Shift   Weapon: F
 Gather / use / chop: E (hold)
-Attack: left click (aims at mouse)
-  or Space (aims for you)
-Dodge roll: right click or Ctrl
-Switch weapon: F    Torch: T
 Crafting: Tab    Inventory: I
-Eat: Q    Cook at a fire: C
+Eat: Q    Cook: C    Torch: T
 Sleep in igloo or cabin: Z
 Pause: Esc
 
 FIGHTING
-- Click in rhythm: the 3rd hit
-  of a combo is a big finisher.
-- Animals crouch (!) before they
-  bite and can't stop once they
-  start. Dodge, then punish them
-  while they recover.
-- Dodge right as a hit lands for
-  slow-mo and a critical hit.
-- Bears show a red circle before
-  they swipe. Get out of it!
-- Each zone has a boss. Beat it
-  for a trophy that unlocks
-  better gear.
+- Fights are won by gear and
+  level. Each weapon has its own
+  damage and attack speed (I).
+- Moving cancels a swing before
+  it lands, so stand your ground.
+- Armor cuts the damage you take.
+  Kills give XP; each level adds
+  health, damage and armor.
+- Wolves are tough early. Make
+  a stone axe and fight near a
+  fire, or avoid them.
+- Each zone has a boss with a
+  trophy that unlocks gear.
 
 Follow the "Next:" line at the
 top right if you're unsure."""
@@ -473,11 +474,11 @@ func _process(delta: float) -> void:
 	_clock.text = "Day %d   %s   %s   |   %s   |   %s" % [main.day, main.clock_text(), main.phase_name(), main.weather.label(), main.zone_at(player.position)["name"]]
 	_clock.text += "  " + "!".repeat(int(main.zone_at(player.position)["danger"]))
 	var sk := []
-	for k in ["hunting", "toughness", "survival", "gathering"]:
-		var lv: int = player.skill(k)
-		var pct := 100 if lv >= player.MAX_SKILL else int(100.0 * player.skills[k]["xp"] / player.xp_needed(lv))
-		sk.append("%s %d (%d%%)" % [k.capitalize(), lv, pct])
-	_skills.text = "Skills  " + "  ".join(PackedStringArray(sk.slice(0, 2))) + "\n        " + "  ".join(PackedStringArray(sk.slice(2)))
+	for k in ["survival", "gathering"]:
+		sk.append("%s %d" % [k.capitalize(), player.skill(k)])
+	var dr: Array = player.damage_range()
+	_skills.text = "Level %d  (%d/%d xp)   HP %d/%d\nDamage %d-%d   Armor %.1f   %s" % [player.level, player.xp, player.xp_to_next(),
+		int(player.health), int(player.max_health), dr[0], dr[1], player.armor_value(), "  ".join(PackedStringArray(sk))]
 
 	var parts := []
 	for key in ITEM_NAMES:
@@ -490,7 +491,7 @@ func _process(delta: float) -> void:
 	if main.game_over:
 		_prompt.text = ""
 	elif prey != null and is_instance_valid(prey):
-		_prompt.text = "[Space] Hit the %s" % prey.display_name
+		_prompt.text = "[Click] Attack the %s" % prey.display_name
 	elif t != null and is_instance_valid(t):
 		_prompt.text = t.get_prompt(player)
 	else:
@@ -515,8 +516,8 @@ func _process(delta: float) -> void:
 	if player.weapon == "bow":
 		gear += " (%d arrows)" % player.inventory["arrows"]
 	var tiers := ["", "Stone", "Bone", "Iron", "Steel"]
-	if player.weapon == "spear":
-		gear = "Holding: %s spear" % tiers[int(player.tools["spear"])]
+	if player.weapon == "spear" or player.weapon == "axe":
+		gear = "Holding: %s %s" % [tiers[int(player.tools[player.weapon])], player.weapon]
 	if int(player.tools["axe"]) > 0:
 		gear += "   %s axe" % tiers[int(player.tools["axe"])]
 	var worn := []
@@ -640,9 +641,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func inventory_text() -> String:
 	var tiers := ["-", "Stone", "Bone", "Iron", "Steel"]
 	var t := "INVENTORY   (I to close)\n\nWEARING & EQUIPPED\n"
-	t += "  In hand: %s" % player.weapon.capitalize()
-	if player.weapon == "spear":
-		t += " (%s, %.1f damage)" % [tiers[int(player.tools["spear"])], (1 + int(player.tools["spear"])) * player.damage_mult()]
+	var dr: Array = player.damage_range()
+	t += "  In hand: %s  (%d-%d damage, attacks every %.1fs, reach %d)" % [player.weapon.capitalize(), dr[0], dr[1], player.attack_cooldown(), int(player.attack_range())]
 	t += "\n  Tools: axe %s, spear %s, bow %s, fishing rod %s\n" % [tiers[int(player.tools["axe"])],
 		tiers[int(player.tools["spear"])], "yes" if player.tools["bow"] else "-", "yes" if player.tools["rod"] else "-"]
 	var clothes := []
@@ -651,8 +651,8 @@ func inventory_text() -> String:
 			clothes.append(g.replace("_", " "))
 	t += "  Clothes: %s  (%d%% less cold)\n" % [", ".join(PackedStringArray(clothes)) if not clothes.is_empty() else "none",
 		int(round((1.0 - player.gear_cold_factor()) * 100.0))]
-	t += "  Armor: %s  (%d%% less damage)\n" % [["none", "bone", "iron", "frost king"][player.armor], [0, 20, 40, 55][player.armor]]
-	t += "  Health %d / %d\n\nPACK\n" % [int(player.health), int(player.max_health)]
+	t += "  Armor: %s  (%.1f armor = %d%% less damage)\n" % [["none", "bone", "iron", "frost king"][player.armor], player.armor_value(), int(round(player.armor_reduction(player.armor_value()) * 100.0))]
+	t += "  Level %d (%d/%d xp)   Health %d / %d\n\nPACK\n" % [player.level, player.xp, player.xp_to_next(), int(player.health), int(player.max_health)]
 	var items := []
 	for k in player.inventory:
 		if player.inventory[k] > 0:
@@ -662,7 +662,7 @@ func inventory_text() -> String:
 	for i in range(0, items.size(), 4):
 		t += "  " + ",   ".join(PackedStringArray(items.slice(i, i + 4))) + "\n"
 	t += "\nSKILLS\n"
-	for k in ["hunting", "toughness", "survival", "gathering"]:
+	for k in ["survival", "gathering"]:
 		var lv: int = player.skill(k)
 		var need: int = player.xp_needed(lv)
 		t += "  %s  level %d   %s\n" % [k.capitalize(), lv, "MAX" if lv >= player.MAX_SKILL else "%d / %d xp" % [player.skills[k]["xp"], need]]

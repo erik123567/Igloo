@@ -310,12 +310,19 @@ func _process(_delta: float) -> bool:
 			assert("alpha" in main.bosses_killed)
 			# a click queues a swing that winds up, strikes, then recovers
 			p.weapon = "spear"
+			p.position = Vector2(3000, 4000)
+			p._atk_state = ""
+			p._combo_t = 0.0
 			p._attack(Vector2.RIGHT)
-			assert(p._buffer > 0.0)
-		495:
-			print("swing state a few frames after a click: ", p._atk_state, " combo ", p._combo, " buf ", p._buffer, " frz ", p._freeze, " ", p.dead, main.game_over, main.sleeping, " ts ", Engine.time_scale)
-			assert(p._combo == 1 and p._atk_state != "")
-			Engine.time_scale = 1.0
+			p._update_attack(0.0)
+			assert(p._atk_state == "startup" and p._combo == 1)
+			p._update_attack(0.1)
+			print("swing state after wind-up: ", p._atk_state)
+			assert(p._atk_state == "recovery")
+			p._attack(Vector2.RIGHT)   # buffered during recovery
+			p._update_attack(0.3)
+			p._update_attack(0.0)
+			assert(p._atk_state == "startup" and p._combo == 2)
 		500:
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())
 			return true

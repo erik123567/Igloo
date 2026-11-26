@@ -32,11 +32,11 @@ const BEARS := 4                 # polar bears on the tundra
 const GREAT_BEARS := 2           # great white bears in the far north
 ## One boss per wild zone. Beating one gives a trophy that unlocks the next tier of gear.
 const BOSSES := [
-	{"variant": "alpha", "kind": "wolf", "pos": Vector2(800, 2100), "zone": "Boreal forest", "trophy": "alpha_fang",
+	{"variant": "alpha", "name": "Greymane, the pack alpha", "kind": "wolf", "pos": Vector2(800, 2100), "zone": "Boreal forest", "trophy": "alpha_fang",
 		"unlocks": "iron armor"},
-	{"variant": "tusk", "kind": "bear", "pos": Vector2(2100, 850), "zone": "Frozen tundra", "trophy": "great_claw",
+	{"variant": "tusk", "name": "Old Tusk", "kind": "bear", "pos": Vector2(2100, 850), "zone": "Frozen tundra", "trophy": "great_claw",
 		"unlocks": "the polar coat and steel tools"},
-	{"variant": "king", "kind": "bear", "pos": Vector2(5300, 180), "zone": "Far north", "trophy": "king_pelt",
+	{"variant": "king", "name": "The White King", "kind": "bear", "pos": Vector2(5300, 180), "zone": "Far north", "trophy": "king_pelt",
 		"unlocks": "frost king armor"},
 ]
 const TROPHY_FROM := {"alpha_fang": "Greymane, the pack alpha (west forest)", "great_claw": "Old Tusk (tundra, west of the lake)",
@@ -521,7 +521,7 @@ func _spawn_predators() -> void:
 			if n.variant == bdef["variant"] and not n.is_queued_for_deletion():
 				alive = true
 		if not alive:
-			var boss = (WolfScript if bdef["kind"] == "wolf" else BearScript).new()
+			var boss = WolfScript.new() if bdef["kind"] == "wolf" else BearScript.new()
 			boss.main = self
 			boss.variant = bdef["variant"]
 			boss.position = bdef["pos"]
@@ -604,8 +604,7 @@ func current_goal() -> Array:
 		return ["Collect bones and make bone armor before the bosses", null]
 	for b in BOSSES:
 		if not b["variant"] in bosses_killed:
-			var bname: String = (WolfScript if b["kind"] == "wolf" else BearScript).VARIANTS[b["variant"]]["name"]
-			return ["Boss: defeat %s in the %s" % [bname, b["zone"].to_lower()], b["pos"]]
+			return ["Boss: defeat %s in the %s" % [b["name"], b["zone"].to_lower()], b["pos"]]
 	if p.armor < 3:
 		return ["Craft frost king armor from the White King's pelt", null]
 	return ["You rule the north. Keep surviving!", null]

@@ -9,45 +9,33 @@ const ITEM_NAMES := {
 	"hide": "Hides", "bone": "Bones", "iron": "Iron",
 	"raw_fish": "Raw fish", "cooked_fish": "Cooked fish", "jerky": "Jerky", "radio_part": "Radio parts",
 	"white_fur": "White fur", "steel": "Steel",
+	"alpha_fang": "Alpha fang (trophy)", "great_claw": "Great claw (trophy)", "king_pelt": "King's pelt (trophy)",
 }
 
 const HELP_TEXT := """CONTROLS  (H to hide)
-Move: WASD or arrow keys
-Sprint: Shift (uses energy)
+Move: WASD    Sprint: Shift
 Gather / use / chop: E (hold)
-Crafting menu: Tab
-Attack / hunt: Space
-Switch weapon: F
-Light a torch: T
+Attack: left click (aims at mouse)
+  or Space (aims for you)
+Dodge roll: right click or Ctrl
+Switch weapon: F    Torch: T
+Crafting: Tab    Inventory: I
 Eat: Q    Cook at a fire: C
-Sleep in a finished igloo: Z
+Sleep in igloo or cabin: Z
 Pause: Esc
 
-SURVIVE, GEAR UP, PUSH NORTH
-- Sticks, flint, stone: make a fire.
-- Storms hit without much warning.
-  Build an igloo (6 snow blocks)
-  and get inside before it hits.
-- Hail hurts in the open. Trees
-  help a little, igloos fully.
-- Axe: chop trees for logs. Haul
-  them home to build your cabin.
-- Each zone north is colder and
-  deadlier: wolves, then dire
-  wolves and polar bears, then
-  frost wolves and great white
-  bears in the far north.
-- Hides, bones and iron make fur
-  clothes and better tools at a
-  workbench.
-- Food rots overnight. Dry it on a
-  rack or keep it in a chest.
-- Wrecks up north hold steel and
-  white fur for the best gear.
-- Skills grow as you do things:
-  hunting = more damage, toughness
-  = more health, survival = less
-  cold, gathering = less tiring."""
+FIGHTING
+- Animals flash red and crouch
+  (!) before they bite. Dodge or
+  step back, then strike.
+- Bears show a red circle before
+  they swipe. Get out of it!
+- Each zone has a boss. Beat it
+  for a trophy that unlocks
+  better gear.
+
+Follow the "Next:" line at the
+top right if you're unsure."""
 
 var main
 var player
@@ -64,6 +52,11 @@ var _toast_time := 0.0
 var _status: Label
 var _help: PanelContainer
 var _skills: Label
+var _boss_box: VBoxContainer
+var _boss_name: Label
+var _boss_bar: ProgressBar
+var _inv_panel: PanelContainer
+var _inv_label: Label
 var _craft: PanelContainer
 var _craft_label: Label
 var _fade: ColorRect
@@ -140,6 +133,42 @@ func _ready() -> void:
 	_inv.offset_right = -330
 	_inv.offset_left = 16
 	root.add_child(_inv)
+
+	# Boss health bar, top centre
+	_boss_box = VBoxContainer.new()
+	_boss_box.anchor_left = 0.5
+	_boss_box.anchor_right = 0.5
+	_boss_box.offset_left = -220
+	_boss_box.offset_right = 220
+	_boss_box.offset_top = 70
+	_boss_box.visible = false
+	_boss_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_boss_name = _label(18, HORIZONTAL_ALIGNMENT_CENTER)
+	_boss_box.add_child(_boss_name)
+	_boss_bar = ProgressBar.new()
+	_boss_bar.show_percentage = false
+	_boss_bar.custom_minimum_size = Vector2(440, 14)
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0.1, 0.05, 0.05, 0.8)
+	var fg := StyleBoxFlat.new()
+	fg.bg_color = Color(0.8, 0.12, 0.12)
+	_boss_bar.add_theme_stylebox_override("background", bg)
+	_boss_bar.add_theme_stylebox_override("fill", fg)
+	_boss_box.add_child(_boss_bar)
+	root.add_child(_boss_box)
+
+	# Inventory and equipment screen (I)
+	var inv_center := CenterContainer.new()
+	inv_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	inv_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(inv_center)
+	_inv_panel = PanelContainer.new()
+	_inv_panel.add_theme_stylebox_override("panel", _panel_style())
+	_inv_panel.visible = false
+	inv_center.add_child(_inv_panel)
+	_inv_label = _label(16, HORIZONTAL_ALIGNMENT_LEFT)
+	_inv_label.custom_minimum_size = Vector2(640, 0)
+	_inv_panel.add_child(_inv_label)
 
 	# Help panel, right side
 	_help = PanelContainer.new()
@@ -463,6 +492,20 @@ func _process(delta: float) -> void:
 		_prompt.text = player.fishing_prompt()
 
 	_status.text = _status_text()
+	var boss = null
+	var bd := 650.0
+	for b in get_tree().get_nodes_in_group("boss"):
+		var d: float = b.position.distance_to(player.position)
+		if d < bd and not b.is_queued_for_deletion():
+			bd = d
+			boss = b
+	_boss_box.visible = boss != null
+	if boss != null:
+		_boss_name.text = boss.display_name
+		_boss_bar.max_value = boss.max_hp()
+		_boss_bar.value = maxf(boss.hp, 0.0)
+	if _inv_panel.visible:
+		_inv_label.text = inventory_text()
 	var gear := "Holding: %s" % player.weapon.capitalize()
 	if player.weapon == "bow":
 		gear += " (%d arrows)" % player.inventory["arrows"]
@@ -478,7 +521,7 @@ func _process(delta: float) -> void:
 	if not worn.is_empty():
 		gear += "   Fur %s (-%d%% cold)" % [", ".join(PackedStringArray(worn)), int(round((1.0 - player.gear_cold_factor()) * 100.0))]
 	if player.armor > 0:
-		gear += "   %s armor" % ["", "Bone", "Iron"][player.armor]
+		gear += "   %s armor" % ["", "Bone", "Iron", "Frost king"][player.armor]
 	if player.torch_time > 0.0:
 		gear += "   Torch: %ds" % int(player.torch_time)
 	_gear.text = gear
@@ -509,6 +552,12 @@ func _status_text() -> String:
 	if home != null and not home.contains(player.position):
 		var to: Vector2 = home.center() - player.position
 		lines.append("Home: %dm %s" % [int(to.length() / 10.0), compass(to)])
+	var goal: Array = main.current_goal()
+	var gl := "Next: %s" % goal[0]
+	if goal[1] != null:
+		var gto: Vector2 = goal[1] - player.position
+		gl += " (%dm %s)" % [int(gto.length() / 10.0), compass(gto)]
+	lines.append(gl)
 	if main.milestone_shown:
 		var hint: String = main.nearest_site_hint()
 		if hint != "":
@@ -571,8 +620,46 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause") and not main.game_over:
 		_set_paused(not get_tree().paused)
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("inventory") and not main.game_over:
+		_inv_panel.visible = not _inv_panel.visible
+		if _inv_panel.visible:
+			set_craft_open(false)
 	elif event.is_action_pressed("toggle_help"):
 		_help.visible = not _help.visible
 	elif event.is_action_pressed("craft_menu") and not get_tree().paused and not main.game_over:
 		set_craft_open(not craft_open)
 		get_viewport().set_input_as_handled()
+
+
+## The full inventory / equipment / skills screen.
+func inventory_text() -> String:
+	var tiers := ["-", "Stone", "Bone", "Iron", "Steel"]
+	var t := "INVENTORY   (I to close)\n\nWEARING & EQUIPPED\n"
+	t += "  In hand: %s" % player.weapon.capitalize()
+	if player.weapon == "spear":
+		t += " (%s, %.1f damage)" % [tiers[int(player.tools["spear"])], (1 + int(player.tools["spear"])) * player.damage_mult()]
+	t += "\n  Tools: axe %s, spear %s, bow %s, fishing rod %s\n" % [tiers[int(player.tools["axe"])],
+		tiers[int(player.tools["spear"])], "yes" if player.tools["bow"] else "-", "yes" if player.tools["rod"] else "-"]
+	var clothes := []
+	for g in ["mittens", "boots", "coat", "polar_coat"]:
+		if player.gear[g] and not (g == "coat" and player.gear["polar_coat"]):
+			clothes.append(g.replace("_", " "))
+	t += "  Clothes: %s  (%d%% less cold)\n" % [", ".join(PackedStringArray(clothes)) if not clothes.is_empty() else "none",
+		int(round((1.0 - player.gear_cold_factor()) * 100.0))]
+	t += "  Armor: %s  (%d%% less damage)\n" % [["none", "bone", "iron", "frost king"][player.armor], [0, 20, 40, 55][player.armor]]
+	t += "  Health %d / %d\n\nPACK\n" % [int(player.health), int(player.max_health)]
+	var items := []
+	for k in player.inventory:
+		if player.inventory[k] > 0:
+			items.append("%s %d" % [item_name(k), player.inventory[k]])
+	if items.is_empty():
+		t += "  (empty)\n"
+	for i in range(0, items.size(), 4):
+		t += "  " + ",   ".join(PackedStringArray(items.slice(i, i + 4))) + "\n"
+	t += "\nSKILLS\n"
+	for k in ["hunting", "toughness", "survival", "gathering"]:
+		var lv: int = player.skill(k)
+		var need: int = player.xp_needed(lv)
+		t += "  %s  level %d   %s\n" % [k.capitalize(), lv, "MAX" if lv >= player.MAX_SKILL else "%d / %d xp" % [player.skills[k]["xp"], need]]
+	t += "\nBOSSES BEATEN: %d / %d" % [main.bosses_killed.size(), main.BOSSES.size()]
+	return t

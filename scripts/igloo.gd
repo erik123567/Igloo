@@ -101,6 +101,7 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 		draw_texture(TEX_DONE, Vector2(-41, -54))
 		return
+	main.draw_bar(self, Vector2(0, -50), 40.0, float(blocks) / BLOCKS_NEEDED, Color(0.6, 0.8, 1.0))
 	# foundation ring
 	var edge := Color(0.55, 0.66, 0.84, 0.8)
 	draw_set_transform(Vector2(0, -4), 0, Vector2(1, 0.55))

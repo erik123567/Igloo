@@ -34,7 +34,7 @@ var hunger := 90.0    # 100 = full, 0 = starving
 var energy := 100.0
 var health := 100.0
 var max_health := 100.0
-var armor := 0               # 0 none, 1 bone, 2 iron
+var armor := 0               # 0 none, 1 bone, 2 iron, 3 frost
 
 ## Skills level up with XP as you play (1 to 10).
 var skills := {
@@ -51,6 +51,7 @@ var inventory := {
 	"berries": 0, "raw_meat": 0, "cooked_meat": 0,
 	"logs": 0, "arrows": 0, "torch": 0, "hide": 0, "bone": 0, "iron": 0,
 	"raw_fish": 0, "cooked_fish": 0, "jerky": 0, "radio_part": 0, "white_fur": 0, "steel": 0,
+	"alpha_fang": 0, "great_claw": 0, "king_pelt": 0,
 }
 var tools := {"axe": 0, "spear": 0, "bow": 0, "rod": 0}   # 0 = don't have it, 1 stone, 2 bone, 3 iron
 var gear := {"mittens": false, "boots": false, "coat": false, "polar_coat": false}
@@ -76,6 +77,12 @@ var _step_dist := 0.0
 var _step_left := false
 var _breath := 0.0
 var _hail_tick := 0.0
+var _dodge := 0.0           # seconds left in a dodge roll (can't be hit)
+var _dodge_cd := 0.0
+var _dodge_dir := Vector2.DOWN
+const DODGE_TIME := 0.28
+const DODGE_SPEED := 430.0
+const DODGE_ENERGY := 12.0
 
 
 func _ready() -> void:
@@ -113,7 +120,16 @@ func _process(delta: float) -> void:
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
 	_swing = maxf(_swing - delta, 0.0)
 	_hurt = maxf(_hurt - delta, 0.0)
-	_move(delta)
+	_dodge_cd = maxf(_dodge_cd - delta, 0.0)
+	if _dodge > 0.0:
+		_dodge -= delta
+		position += _dodge_dir * DODGE_SPEED * delta
+		position.x = clampf(position.x, 16.0, main.world_size.x - 16.0)
+		position.y = clampf(position.y, 16.0, main.shore_y + 60.0)
+		if randf() < 0.5:
+			main.puff(position + Vector2(0, 3), Color(1, 1, 1, 0.7), 2, 20.0)
+	else:
+		_move(delta)
 	_update_stats(delta)
 	_find_target()
 	prey = _nearest_attackable(ATTACK_RANGE + 30.0)
@@ -271,6 +287,10 @@ func _handle_actions() -> void:
 			_use_target()  # holding E repeats, handy for snow blocks
 	if Input.is_action_just_pressed("attack") and _attack_cd <= 0.0:
 		_attack()
+	elif Input.is_action_just_pressed("attack_mouse") and _attack_cd <= 0.0:
+		_attack((get_global_mouse_position() - position).normalized())
+	if Input.is_action_just_pressed("dodge"):
+		dodge()
 	if Input.is_action_just_pressed("eat"):
 		_eat()
 	if Input.is_action_just_pressed("cook"):
@@ -291,35 +311,69 @@ func _use_target() -> void:
 		say(target.get_prompt(self))
 
 
-func _attack() -> void:
+## Attack. With a direction (mouse click) you swing or shoot exactly that way;
+## without one (Space) you aim at the nearest animal in front of you.
+func _attack(aim: Vector2 = Vector2.ZERO) -> void:
 	if weapon == "bow":
-		_attack_cd = 0.7
+		_attack_cd = 0.6
 		if inventory["arrows"] <= 0:
 			say("You're out of arrows. Craft more (Tab).")
 			return
 		inventory["arrows"] -= 1
-		var dir := facing
-		# gentle auto-aim toward the nearest animal roughly in front of you
-		var best_d := 320.0
-		for n in get_tree().get_nodes_in_group("attackable"):
-			var to: Vector2 = n.position - position
-			if to.length() < best_d and absf(facing.angle_to(to)) < 0.5:
-				best_d = to.length()
-				dir = to.normalized()
+		var dir := aim if aim != Vector2.ZERO else facing
+		if aim == Vector2.ZERO:
+			# gentle auto-aim toward the nearest animal roughly in front of you
+			var best_d := 320.0
+			for n in get_tree().get_nodes_in_group("attackable"):
+				var to: Vector2 = n.position - position
+				if to.length() < best_d and absf(facing.angle_to(to)) < 0.5:
+					best_d = to.length()
+					dir = to.normalized()
 		facing = dir
 		main.audio.play("bow", null, -3.0)
 		main.shoot_arrow(position + Vector2(0, -6) + dir * 8.0, dir)
 		return
-	_attack_cd = 0.45 if weapon == "hands" else 0.55
+	_attack_cd = 0.4 if weapon == "hands" else 0.5
 	_swing = 0.18
 	energy = maxf(energy - 3.0, 0.0)
 	main.audio.play("swing", null, -4.0)
-	var reach := ATTACK_RANGE + (16.0 if weapon == "spear" else 0.0)
-	var best = _nearest_attackable(reach)
-	if best != null:
-		facing = (best.position - position).normalized()
-		var base := float(1 + int(tools["spear"])) if weapon == "spear" else 1.0
-		best.take_hit(self, base * damage_mult())
+	var reach := ATTACK_RANGE + (18.0 if weapon == "spear" else 0.0)
+	var dir := aim
+	if dir == Vector2.ZERO:
+		var best = _nearest_attackable(reach)
+		dir = (best.position - position).normalized() if best != null else facing
+	facing = dir
+	# a sweeping arc: hits everything in front of you within reach
+	var base := float(1 + int(tools["spear"])) if weapon == "spear" else 1.0
+	var hit_any := false
+	for n in get_tree().get_nodes_in_group("attackable"):
+		if n.is_queued_for_deletion():
+			continue
+		var to: Vector2 = n.position - position
+		if to.length() < reach + n.hit_radius and (to.length() < 10.0 or absf(dir.angle_to(to)) < 1.0):
+			n.take_hit(self, base * damage_mult())
+			hit_any = true
+	if hit_any:
+		main.hit_stop()
+
+
+## A quick roll in the direction you're moving (or facing). You can't be hurt mid-roll.
+func dodge() -> void:
+	if _dodge_cd > 0.0 or _dodge > 0.0:
+		return
+	if energy < DODGE_ENERGY:
+		say("Too tired to dodge.")
+		return
+	energy -= DODGE_ENERGY
+	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	_dodge_dir = dir.normalized() if dir.length() > 0.1 else facing
+	_dodge = DODGE_TIME
+	_dodge_cd = 0.7
+	main.audio.play("swing", null, -8.0, 0.0, 0.7)
+
+
+func is_dodging() -> bool:
+	return _dodge > 0.0
 
 
 func _cycle_weapon() -> void:
@@ -482,7 +536,9 @@ func take_damage(amount: float, cause: String, flash: bool = true, is_attack: bo
 	if dead:
 		return
 	if is_attack:
-		amount *= [1.0, 0.8, 0.6][armor]
+		if _dodge > 0.0:
+			return
+		amount *= [1.0, 0.8, 0.6, 0.45][armor]
 		add_xp("toughness", int(amount * 0.6))
 	health -= amount
 	if flash:
@@ -522,6 +578,8 @@ func _draw() -> void:
 	var tint := Color(1, 1, 1)
 	if _hurt > 0.0:
 		tint = Color(1, 0.45, 0.45)
+	if _dodge > 0.0:
+		tint = Color(0.75, 0.9, 1.0, 0.6)
 	if dead:
 		draw_set_transform(Vector2(0, -2), PI / 2, Vector2.ONE)
 		draw_texture(TEX["down"][0], Vector2(-8, -9), Color(0.8, 0.8, 0.9))
@@ -558,7 +616,9 @@ func _draw() -> void:
 		draw_circle(bob + Vector2(0, -1 + dip), 1.6, Color(1, 0.3, 0.2))
 	if _swing > 0.0:
 		var a := facing.angle()
-		draw_arc(facing * 10.0 + Vector2(0, -5), 12, a - 1.0, a + 1.0, 10, Color(1, 1, 1, 0.9), 2.0)
+		var r := 16.0 if weapon == "spear" else 12.0
+		draw_arc(facing * 10.0 + Vector2(0, -5), r, a - 1.0, a + 1.0, 12, Color(1, 1, 1, 0.9), 3.0)
+		draw_arc(facing * 10.0 + Vector2(0, -5), r - 4.0, a - 0.8, a + 0.8, 10, Color(1, 1, 1, 0.5), 1.5)
 
 
 ## Draws the weapon and torch in your hands (in the sprite's own flipped space).

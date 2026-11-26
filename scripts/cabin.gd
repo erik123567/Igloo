@@ -198,3 +198,14 @@ func _draw() -> void:
 			draw_texture(TEX_ROOF, origin + Vector2(-1, -1))
 		_:
 			draw_texture(TEX_LIT if stove_fuel > 0.0 else TEX_STOVE, origin + Vector2(-1, -1))
+	if main.player.position.distance_to(center()) < 220.0:
+		if level < STAGES.size():
+			var cost: Dictionary = STAGES[level]["cost"]
+			var total := 0
+			var got := 0
+			for item in cost:
+				total += int(cost[item])
+				got += int(cost[item]) - _remaining(item)
+			main.draw_bar(self, Vector2(0, -96), 60.0, (level + float(got) / maxi(total, 1)) / STAGES.size(), Color(0.85, 0.6, 0.3))
+		else:
+			main.draw_bar(self, Vector2(0, -96), 60.0, stove_fuel / MAX_FUEL, Color(1.0, 0.6, 0.15))

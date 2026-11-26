@@ -18,7 +18,7 @@ const RACK_SLOTS := 8
 const SNARE_CHANCE := 0.6       # chance each morning that a set snare has caught a hare
 ## Items that go into the chest (tools, arrows and torches stay with you).
 const STORABLE := ["sticks", "flint", "stone", "snow_block", "logs", "berries", "raw_meat", "cooked_meat",
-	"raw_fish", "cooked_fish", "jerky", "hide", "bone", "iron", "radio_part", "white_fur", "steel"]
+	"raw_fish", "cooked_fish", "jerky", "hide", "bone", "iron", "radio_part", "white_fur", "steel", "alpha_fang", "great_claw", "king_pelt"]
 
 var main
 var kind := "workbench"

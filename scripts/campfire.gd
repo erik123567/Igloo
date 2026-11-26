@@ -145,3 +145,5 @@ func _draw() -> void:
 	var s := 0.55 + 0.45 * _strength()
 	var flame: Texture2D = TEX_FLAME[int(_flicker * 0.9) % 3]
 	draw_texture_rect(flame, Rect2(-7.0 * s, -4.0 - 20.0 * s, 14.0 * s, 20.0 * s), false)
+	if main.player.position.distance_to(position) < 160.0:
+		main.draw_bar(self, Vector2(0, -34), 30.0, fuel / MAX_FUEL, Color(1.0, 0.6, 0.15))

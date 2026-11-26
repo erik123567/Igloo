@@ -30,6 +30,17 @@ const WIN_DAYS := 3            # survive this many nights to win
 const HARES_PER_DAY := 14
 const BEARS := 4                 # polar bears on the tundra
 const GREAT_BEARS := 2           # great white bears in the far north
+## One boss per wild zone. Beating one gives a trophy that unlocks the next tier of gear.
+const BOSSES := [
+	{"variant": "alpha", "kind": "wolf", "pos": Vector2(800, 2100), "zone": "Boreal forest", "trophy": "alpha_fang",
+		"unlocks": "iron armor"},
+	{"variant": "tusk", "kind": "bear", "pos": Vector2(2100, 850), "zone": "Frozen tundra", "trophy": "great_claw",
+		"unlocks": "the polar coat and steel tools"},
+	{"variant": "king", "kind": "bear", "pos": Vector2(5300, 180), "zone": "Far north", "trophy": "king_pelt",
+		"unlocks": "frost king armor"},
+]
+const TROPHY_FROM := {"alpha_fang": "Greymane, the pack alpha (west forest)", "great_claw": "Old Tusk (tundra, west of the lake)",
+	"king_pelt": "The White King (far north-east)"}
 ## Wolf dens: where each pack lives, and what kind of wolves they are.
 const DENS := [
 	[Vector2(1500, 2400), "wolf"], [Vector2(4300, 2000), "wolf"], [Vector2(2900, 1900), "wolf"],
@@ -61,11 +72,12 @@ const RECIPES := [
 	{"key": "mittens", "gear": "mittens", "bench": true, "name": "Fur mittens", "cost": {"hide": 2}, "note": "10% less cold"},
 	{"key": "boots", "gear": "boots", "bench": true, "name": "Fur boots", "cost": {"hide": 3}, "note": "10% less cold, walk a bit faster"},
 	{"key": "coat", "gear": "coat", "bench": true, "name": "Fur coat", "cost": {"hide": 5}, "note": "25% less cold"},
-	{"key": "polar_coat", "gear": "polar_coat", "needs_gear": "coat", "bench": true, "name": "Polar fur coat", "cost": {"white_fur": 4, "hide": 2}, "note": "40% less cold (replaces the fur coat)"},
+	{"key": "polar_coat", "gear": "polar_coat", "needs_gear": "coat", "bench": true, "name": "Polar fur coat", "cost": {"white_fur": 4, "hide": 2}, "trophy": "great_claw", "note": "40% less cold (replaces the fur coat)"},
 	{"key": "armor_bone", "armor": 1, "bench": true, "name": "Bone armor", "cost": {"bone": 6, "hide": 2}, "note": "take 20% less damage from animals"},
-	{"key": "armor_iron", "armor": 2, "bench": true, "name": "Iron armor", "cost": {"iron": 6, "hide": 2}, "note": "take 40% less damage from animals"},
-	{"key": "axe_steel", "tool": "axe", "tier": 4, "bench": true, "name": "Steel axe", "cost": {"steel": 2, "logs": 1}, "note": "chops four times as fast"},
-	{"key": "spear_steel", "tool": "spear", "tier": 4, "bench": true, "name": "Steel spear", "cost": {"steel": 2, "logs": 1}, "note": "5 damage"},
+	{"key": "armor_iron", "armor": 2, "bench": true, "name": "Iron armor", "cost": {"iron": 6, "hide": 2}, "trophy": "alpha_fang", "note": "take 40% less damage from animals"},
+	{"key": "armor_frost", "armor": 3, "bench": true, "name": "Frost king armor", "cost": {"steel": 4, "white_fur": 4}, "trophy": "king_pelt", "note": "take 55% less damage. The best there is"},
+	{"key": "axe_steel", "tool": "axe", "tier": 4, "bench": true, "name": "Steel axe", "cost": {"steel": 2, "logs": 1}, "trophy": "great_claw", "note": "chops four times as fast"},
+	{"key": "spear_steel", "tool": "spear", "tier": 4, "bench": true, "name": "Steel spear", "cost": {"steel": 2, "logs": 1}, "trophy": "great_claw", "note": "5 damage"},
 ]
 
 # Places worth finding up north. Their crates hold rare loot: steel, white fur, iron.
@@ -114,6 +126,7 @@ var play_time := 0.0
 var stats := {"wolves": 0, "bears": 0, "hares": 0}
 var rescue_day := 0              # morning the rescue plane arrives (0 = beacon not on yet)
 var milestone_shown := false
+var bosses_killed := []
 
 const SAVE_PATH := "user://igloo_save.json"
 ## How the scene should start after a reload: "title", "continue" or "new".
@@ -214,6 +227,8 @@ func _setup_input() -> void:
 		"craft_7": [KEY_7],
 		"craft_8": [KEY_8],
 		"cycle_weapon": [KEY_F],
+		"dodge": [KEY_CTRL],
+		"inventory": [KEY_I],
 		"torch": [KEY_T],
 		"toggle_help": [KEY_H],
 		"pause": [KEY_ESCAPE],
@@ -228,6 +243,13 @@ func _setup_input() -> void:
 			var ev := InputEventKey.new()
 			ev.physical_keycode = k
 			InputMap.action_add_event(action, ev)
+	for mb in [["attack_mouse", MOUSE_BUTTON_LEFT], ["dodge", MOUSE_BUTTON_RIGHT]]:
+		if not InputMap.has_action(mb[0]):
+			InputMap.add_action(mb[0])
+		var mev := InputEventMouseButton.new()
+		mev.button_index = mb[1]
+		if not InputMap.action_has_event(mb[0], mev):
+			InputMap.action_add_event(mb[0], mev)
 
 
 # ---------- Map ----------
@@ -490,6 +512,20 @@ func _spawn_predators() -> void:
 		_spawn_bear("polar", rng.randf_range(650, 1600))
 	for i in maxi(GREAT_BEARS - have["great"], 0):
 		_spawn_bear("great", rng.randf_range(100, 550))
+	for bdef in BOSSES:
+		if bdef["variant"] in bosses_killed:
+			continue
+		var alive := false
+		for n in get_tree().get_nodes_in_group("boss"):
+			if n.variant == bdef["variant"]:
+				alive = true
+		if not alive:
+			var boss = (WolfScript if bdef["kind"] == "wolf" else BearScript).new()
+			boss.main = self
+			boss.variant = bdef["variant"]
+			boss.position = bdef["pos"]
+			boss.home = bdef["pos"]
+			world.add_child(boss)
 	var at_den := {}
 	for w in get_tree().get_nodes_in_group("wolf"):
 		if w.resident:
@@ -522,6 +558,85 @@ func _away_from_player(x: float, y: float) -> Vector2:
 	p.x = clampf(p.x, 40, world_size.x - 40)
 	p.y = clampf(p.y, 40, shore_y - 40)
 	return p
+
+
+# ---------- Bosses and guidance ----------
+
+func boss_defeated(variant: String, boss_name: String) -> void:
+	if not variant in bosses_killed:
+		bosses_killed.append(variant)
+	var unlocks := ""
+	for b in BOSSES:
+		if b["variant"] == variant:
+			unlocks = b["unlocks"]
+	audio.play("chime", null, 0.0, 0.0, 0.8)
+	shake(12.0)
+	hud.show_message("%s is dead!\nIts trophy lets you craft %s at a workbench." % [boss_name, unlocks], 8.0)
+	save_game()
+
+
+## What the player should do next, as [text, world position or null].
+func current_goal() -> Array:
+	var p = player
+	var home = get_home()
+	if get_tree().get_nodes_in_group("fire").is_empty() and stats.get("fires", 0) == 0:
+		return ["Gather sticks, flint and stone (E), then build a campfire (Tab)", null]
+	var has_igloo := false
+	for ig in get_tree().get_nodes_in_group("igloo"):
+		if ig.is_complete():
+			has_igloo = true
+	if not has_igloo and home == null:
+		return ["Build an igloo (6 snow blocks from drifts) to hide from storms", null]
+	if p.tools["axe"] == 0:
+		return ["Craft a stone axe (Tab) and chop trees for logs", null]
+	if home == null:
+		return ["Pick a home spot and build your cabin floor (Tab)", null]
+	if home.level < 3:
+		return ["Haul logs home and finish your cabin's %s" % home.STAGES[home.level]["name"], home.center()]
+	if get_tree().get_nodes_in_group("structure").filter(func(st): return st.kind == "workbench").is_empty():
+		return ["Build a workbench near home (Tab) for better gear", null]
+	if p.tools["spear"] == 0 and p.tools["bow"] == 0:
+		return ["Make a spear or a bow and go hunting", null]
+	if not p.gear["coat"]:
+		return ["Hunt for hides and make fur clothes at the workbench", null]
+	if p.armor == 0:
+		return ["Collect bones and make bone armor before the bosses", null]
+	for b in BOSSES:
+		if not b["variant"] in bosses_killed:
+			var bname: String = (WolfScript if b["kind"] == "wolf" else BearScript).VARIANTS[b["variant"]]["name"]
+			return ["Boss: defeat %s in the %s" % [bname, b["zone"].to_lower()], b["pos"]]
+	if p.armor < 3:
+		return ["Craft frost king armor from the White King's pelt", null]
+	return ["You rule the north. Keep surviving!", null]
+
+
+func float_text(pos: Vector2, text: String, color: Color) -> void:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 14)
+	l.add_theme_color_override("font_color", color)
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	l.add_theme_constant_override("outline_size", 4)
+	l.position = pos + Vector2(-12 + randf_range(-6, 6), -10)
+	l.z_index = 90
+	add_child(l)
+	var tw := l.create_tween()
+	tw.tween_property(l, "position:y", l.position.y - 26.0, 0.7)
+	tw.parallel().tween_property(l, "modulate:a", 0.0, 0.7).set_delay(0.3)
+	tw.tween_callback(l.queue_free)
+
+
+## A tiny freeze on a solid hit, so blows feel heavy.
+func hit_stop() -> void:
+	Engine.time_scale = 0.05
+	get_tree().create_timer(0.05, true, false, true).timeout.connect(func(): Engine.time_scale = 1.0)
+
+
+## A small health/fuel bar drawn by any world object, centred at pos.
+func draw_bar(ci: CanvasItem, pos: Vector2, width: float, frac: float, color: Color) -> void:
+	var r := Rect2(pos.x - width / 2.0, pos.y, width, 4)
+	ci.draw_rect(r.grow(1.0), Color(0, 0, 0, 0.6))
+	ci.draw_rect(Rect2(r.position, Vector2(width * clampf(frac, 0.0, 1.0), 4)), color)
 
 
 # ---------- Effects ----------
@@ -667,6 +782,8 @@ func missing_for(r: Dictionary) -> String:
 			missing.append("%d %s" % [cost[item] - inv[item], hud.item_name(item).to_lower()])
 	if key == "campfire" and inv["stone"] < 1:
 		missing.append("a stone")
+	if r.has("trophy") and inv.get(r["trophy"], 0) < 1:
+		missing.append("a trophy from %s" % TROPHY_FROM[r["trophy"]])
 	if r.get("bench", false) and not near_workbench():
 		missing.append("a workbench nearby")
 	if missing.is_empty():
@@ -735,6 +852,7 @@ func craft(r: Dictionary) -> void:
 			world.add_child(fire)
 			audio.play("ignite", place)
 			puff(place, Color(1.0, 0.7, 0.3), 14)
+			stats["fires"] = int(stats.get("fires", 0)) + 1
 			hud.show_message("You strike flint against stone... the tinder catches!\nFeed the fire with sticks (E) or it will burn out.", 6.0)
 		"igloo":
 			var igloo = IglooScript.new()
@@ -759,7 +877,7 @@ func craft(r: Dictionary) -> void:
 			player.tools[tool] = int(r["tier"])
 			player.weapon = tool
 			hud.show_message("%s made and in hand. F switches weapons." % r["name"], 5.0)
-		"armor_bone", "armor_iron":
+		"armor_bone", "armor_iron", "armor_frost":
 			player.armor = int(r["armor"])
 			hud.show_message("%s on. Animals hurt you less." % r["name"], 5.0)
 		"axe_steel":
@@ -967,7 +1085,7 @@ func save_game() -> void:
 	var data := {
 		"version": 1,
 		"day": day, "time": time_of_day, "play_time": play_time, "endless": endless, "stats": stats,
-		"rescue_day": rescue_day, "milestone": milestone_shown, "structures": structures,
+		"rescue_day": rescue_day, "milestone": milestone_shown, "bosses": bosses_killed, "structures": structures,
 		"player": {
 			"x": player.position.x, "y": player.position.y,
 			"temp": player.temp, "hunger": player.hunger, "energy": player.energy, "health": player.health,
@@ -992,6 +1110,12 @@ func load_game(data: Dictionary) -> void:
 	endless = bool(data.get("endless", false))
 	rescue_day = int(data.get("rescue_day", 0))
 	milestone_shown = bool(data.get("milestone", false))
+	bosses_killed = []
+	for b in data.get("bosses", []):
+		bosses_killed.append(str(b))
+	for n in get_tree().get_nodes_in_group("boss"):
+		if n.variant in bosses_killed:
+			n.queue_free()
 	for sd in data.get("structures", []):
 		var st = StructureScript.new()
 		st.main = self

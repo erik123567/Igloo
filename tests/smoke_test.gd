@@ -141,7 +141,10 @@ func _process(_delta: float) -> bool:
 			assert(main.get_shelter_at(p.position) == cabin)
 			# a polar bear next to us outside should hurt
 		190:
-			var bear = get_nodes_in_group("bear")[0]
+			var bear = null
+			for b in get_nodes_in_group("bear"):
+				if b.variant == "polar":
+					bear = b
 			print("bears: ", get_nodes_in_group("bear").size(), " forest wolves: ", get_nodes_in_group("wolf").size())
 			var kinds := {}
 			for b in get_nodes_in_group("bear"):
@@ -254,7 +257,14 @@ func _process(_delta: float) -> bool:
 			p.gear["coat"] = true
 			for k in ["white_fur", "steel", "bone", "iron", "hide", "logs"]:
 				p.inventory[k] = 20
-			for key in ["polar_coat", "armor_bone", "armor_iron", "axe_steel", "spear_steel"]:
+			# trophies gate the top gear
+			for r in main.get_recipes():
+				if r["key"] == "polar_coat":
+					print("polar coat without trophy: ", main.missing_for(r))
+					assert(main.missing_for(r) != "")
+			for k in ["alpha_fang", "great_claw", "king_pelt"]:
+				p.inventory[k] = 1
+			for key in ["polar_coat", "armor_bone", "armor_iron", "armor_frost", "axe_steel", "spear_steel"]:
 				var found := false
 				for r in main.get_recipes():
 					if r["key"] == key:
@@ -263,16 +273,41 @@ func _process(_delta: float) -> bool:
 						found = true
 				print("crafted ", key, ": ", found)
 				assert(found)
-			assert(p.armor == 2 and p.gear["polar_coat"] and p.tools["axe"] == 4 and p.tools["spear"] == 4)
+			assert(p.armor == 3 and p.gear["polar_coat"] and p.tools["axe"] == 4 and p.tools["spear"] == 4)
 			p.health = p.max_health
 			var h0: float = p.health
 			p.take_damage(10.0, "a test", false, true)
-			print("10 damage with iron armor took ", h0 - p.health)
-			assert(absf((h0 - p.health) - 6.0) < 0.6)
+			print("10 damage with frost armor took ", h0 - p.health)
+			assert(absf((h0 - p.health) - 4.5) < 0.6)
+			# a dodge roll avoids the hit entirely
+			p.dodge()
+			h0 = p.health
+			p.take_damage(10.0, "a test", false, true)
+			assert(p.health == h0)
 			main.save_game()
 			p.armor = 0
 			main.load_game(main.read_save())
-			assert(p.armor == 2 and p.skill("toughness") > 1)
+			assert(p.armor == 3 and p.skill("toughness") > 1)
+		470:
+			# bosses: one per zone, with a big health bar; beating one is remembered
+			var bosses := get_nodes_in_group("boss")
+			print("bosses: ", bosses.map(func(b): return b.display_name))
+			assert(bosses.size() == 3)
+			print("goal: ", main.current_goal()[0])
+			var alpha = null
+			for b in bosses:
+				if b.variant == "alpha":
+					alpha = b
+			p.position = alpha.position + Vector2(30, 0)
+			p.weapon = "spear"
+			var swings := 0
+			while is_instance_valid(alpha) and not alpha.is_queued_for_deletion() and swings < 100:
+				p._attack((alpha.position - p.position).normalized())
+				p.position = alpha.position + Vector2(30, 0)
+				swings += 1
+			print("alpha down after ", swings, " swings; wolves now: ", get_nodes_in_group("wolf").size())
+			assert("alpha" in main.bosses_killed)
+			Engine.time_scale = 1.0
 		500:
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())
 			return true

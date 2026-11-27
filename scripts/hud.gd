@@ -18,8 +18,11 @@ Attack: right- or left-click an
   animal. You walk up and keep
   attacking until it dies.
 Attack nearest animal: Space
-Abilities: 1 spear throw, 2 net,
-  3 track, 4 war cry (by level)
+Hold: 1 fists, 2 axe, 3 spear,
+  4 bow, 5 nets (if you have them)
+  What you hold is how you fight.
+  Hold nets and click an animal to
+  trap it, then finish it off.
 Sprint: Shift   Weapon: F
 Gather / use / chop: E (hold)
 Crafting: Tab    Inventory: I
@@ -246,8 +249,8 @@ func _ready() -> void:
 	cls[2].text = """You've reached level 6. Pick a class (this can't be changed):
 
 Hunter: +4 damage, 20% chance of a Giant Swing (+15), nets hold 1s longer.
-Tracker: 12% faster, +25% XP, Track lowers armor by 6 instead of 3.
-Shaman: regenerates health, loses 30% less heat, War cry heals 50."""
+Tracker: 12% faster and +25% XP from everything.
+Shaman: regenerates health and loses 30% less heat."""
 	_add_button(cls[3], "Hunter", func(): _pick_class("hunter"))
 	_add_button(cls[3], "Tracker", func(): _pick_class("tracker"))
 	_add_button(cls[3], "Shaman", func(): _pick_class("shaman"))
@@ -519,9 +522,12 @@ func _process(delta: float) -> void:
 
 	_status.text = _status_text()
 	var ab := []
-	for i in 4:
-		ab.append("[%d] %s: %s" % [i + 1, player.ABILITIES[i]["name"], player.ability_ready_text(i)])
-	_abilities.text = "     ".join(PackedStringArray(ab)) + ("     WAR CRY %ds" % int(player.warcry_time) if player.warcry_time > 0.0 else "")
+	for i in player.HOLDABLE.size():
+		var item: String = player.HOLDABLE[i]
+		if player.owns(item):
+			var nm: String = player.hold_name(item)
+			ab.append((">[%d] %s<" if item == player.weapon else "[%d] %s") % [i + 1, nm])
+	_abilities.text = "     ".join(PackedStringArray(ab))
 	var boss = null
 	var bd := 650.0
 	for b in get_tree().get_nodes_in_group("boss"):

@@ -331,21 +331,26 @@ func _process(_delta: float) -> bool:
 			p._cancel_swing()
 			p._update_combat(0.4)
 			assert(w.hp == hp_before)
-			# abilities: throw a spear, then net it
-			test_wolf = w
-			p.tools["spear"] = 4
-			p.energy = 100.0
-			p.inventory["net"] = 1
-			p.ability_cd = [0.0, 0.0, 0.0, 0.0]
-			p.use_ability(1)
-			p.use_ability(2)
-			p.use_ability(3)
-			p.use_ability(0)
-			print("ability cooldowns: ", p.ability_cd, " nets left ", p.inventory["net"], " war cry ", p.warcry_time)
-			assert(p.ability_cd[0] > 0.0 and p.ability_cd[1] > 0.0 and p.inventory["net"] == 0 and p.warcry_time > 0.0)
+			# what you hold is how you fight: hold nets, click an animal, it gets trapped
+			test_wolf = load("res://scripts/wolf.gd").new()
+			test_wolf.main = main
+			test_wolf.position = p.position + Vector2(120, 0)
+			main.world.add_child(test_wolf)
+			p.weapon = "spear"
+			p.hold("bow")
+			p.inventory["net"] = 2
+			p.hold("net")
+			assert(p.weapon == "net")
+			p._atk_cd = 0.0
+			p._swing_t = -1.0
+			p.attack_order(test_wolf)
+			p._update_combat(0.0)
+			p._update_combat(0.35)
+			print("after net throw: holding ", p.weapon, " nets left ", p.inventory["net"])
+			assert(p.inventory["net"] == 1 and p.weapon == "bow")
 		488:
 			if is_instance_valid(test_wolf) and not test_wolf.is_queued_for_deletion():
-				print("wolf after spear and net: hp ", test_wolf.hp, " rooted ", test_wolf._root_t, " slowed ", test_wolf._slow_t)
+				print("wolf after net: hp ", test_wolf.hp, " rooted ", test_wolf._root_t)
 				assert(test_wolf._root_t > 0.0)
 			# dying drops your pack and you wake up at home
 			p.inventory["logs"] = 7

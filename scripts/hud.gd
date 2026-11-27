@@ -18,6 +18,8 @@ Attack: right- or left-click an
   animal. You walk up and keep
   attacking until it dies.
 Attack nearest animal: Space
+Abilities: 1 spear throw, 2 net,
+  3 track, 4 war cry (by level)
 Sprint: Shift   Weapon: F
 Gather / use / chop: E (hold)
 Crafting: Tab    Inventory: I

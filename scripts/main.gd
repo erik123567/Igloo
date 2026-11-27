@@ -1122,6 +1122,11 @@ func nearest_site_hint() -> String:
 	return best
 
 
+func survived_text() -> String:
+	var hours := int(play_time / DAY_LENGTH * 24.0)
+	return "%d days, %d hours" % [int(hours / 24.0), hours % 24]
+
+
 # ---------- Starting, saving and loading ----------
 
 func start_new_game() -> void:

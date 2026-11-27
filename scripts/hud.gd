@@ -241,11 +241,14 @@ func _ready() -> void:
 	var cls := _make_menu(root, true)
 	_class_box = cls[0]
 	cls[1].text = "CHOOSE YOUR PATH"
-	cls[2].text = "You've reached level 6. Pick a class. This can't be changed."
-	_add_button(cls[3], "Hunter: +4 damage, 20% Giant Swing (+15), longer nets", func(): _pick_class("hunter"))
-	_add_button(cls[3], "Tracker: 12% faster, +25% XP, Track -6 armor", func(): _pick_class("tracker"))
-	_add_button(cls[3], "Shaman: regenerate health, 30% less cold, War cry heals", func(): _pick_class("shaman"))
-	(cls[3] as BoxContainer).vertical = true
+	cls[2].text = """You've reached level 6. Pick a class (this can't be changed):
+
+Hunter: +4 damage, 20% chance of a Giant Swing (+15), nets hold 1s longer.
+Tracker: 12% faster, +25% XP, Track lowers armor by 6 instead of 3.
+Shaman: regenerates health, loses 30% less heat, War cry heals 50."""
+	_add_button(cls[3], "Hunter", func(): _pick_class("hunter"))
+	_add_button(cls[3], "Tracker", func(): _pick_class("tracker"))
+	_add_button(cls[3], "Shaman", func(): _pick_class("shaman"))
 
 	var title := _make_menu(root, true)
 	_title_box = title[0]

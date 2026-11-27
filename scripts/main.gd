@@ -64,6 +64,7 @@ const RECIPES := [
 	{"key": "spear_iron", "tool": "spear", "tier": 3, "bench": true, "name": "Iron spear", "cost": {"iron": 2, "logs": 1}, "note": "4 damage"},
 	{"key": "bow", "tool": "bow", "tier": 1, "bench": true, "name": "Bow", "cost": {"logs": 1, "sticks": 2}, "note": "shoot arrows from afar"},
 	{"key": "arrows", "name": "5 arrows", "cost": {"sticks": 2, "flint": 1}, "note": ""},
+	{"key": "nets", "name": "2 nets", "cost": {"hide": 1, "sticks": 4}, "note": "press 2 to throw: roots an animal for 3s"},
 	{"key": "rod", "tool": "rod", "tier": 1, "name": "Fishing rod", "cost": {"sticks": 3, "bone": 1}, "note": "fish through the ice (lake or sea ice)"},
 	{"key": "snare", "name": "Snare", "cost": {"sticks": 3, "hide": 1}, "note": "catches hares overnight"},
 	{"key": "fence", "name": "Fence", "cost": {"logs": 2}, "note": "wolves and bears can't get past"},
@@ -127,6 +128,7 @@ var stats := {"wolves": 0, "bears": 0, "hares": 0}
 var rescue_day := 0              # morning the rescue plane arrives (0 = beacon not on yet)
 var milestone_shown := false
 var bosses_killed := []
+var lost_pack_pos = null      # where your pack dropped when you died
 
 const SAVE_PATH := "user://igloo_save.json"
 ## How the scene should start after a reload: "title", "continue" or "new".
@@ -229,6 +231,10 @@ func _setup_input() -> void:
 		"craft_8": [KEY_8],
 		"cycle_weapon": [KEY_F],
 		"inventory": [KEY_I],
+		"ability_1": [KEY_1],
+		"ability_2": [KEY_2],
+		"ability_3": [KEY_3],
+		"ability_4": [KEY_4],
 		"torch": [KEY_T],
 		"toggle_help": [KEY_H],
 		"pause": [KEY_ESCAPE],
@@ -948,6 +954,9 @@ func craft(r: Dictionary) -> void:
 		"arrows":
 			player.inventory["arrows"] += 5
 			hud.show_toast("+5 arrows")
+		"nets":
+			player.inventory["net"] += 2
+			hud.show_toast("+2 nets")
 		"torch":
 			player.inventory["torch"] += 1
 			hud.show_message("Torch made. Press T to light it.", 4.0)
@@ -977,6 +986,20 @@ func shoot_arrow(from: Vector2, dir: Vector2, dmg: float = 10.0) -> void:
 	a.shooter = player
 	a.dir = dir
 	a.position = from
+	add_child(a)
+
+
+## A thrown spear or net that flies straight to its target.
+func throw_projectile(kind: String, shooter, target, dmg: float) -> void:
+	var a = ArrowScript.new()
+	a.main = self
+	a.shooter = shooter
+	a.kind = kind
+	a.target = target
+	a.damage = dmg
+	a.speed = 380.0
+	a.position = shooter.position + Vector2(0, -8)
+	a.dir = (target.position - shooter.position).normalized()
 	add_child(a)
 
 
@@ -1035,7 +1058,38 @@ func on_player_died(cause: String) -> void:
 	if game_over:
 		return
 	game_over = true
-	hud.show_end(false, "You died from %s." % cause)
+	stats["deaths"] = int(stats.get("deaths", 0)) + 1
+	hud.show_end(false, "You died from %s.\nYou can wake up at home, but your pack stays where you fell." % cause)
+
+
+## Back from the dead: your pack (everything but trophies) stays at your body,
+## and you wake up at home, hurt but alive.
+func respawn() -> void:
+	var pack := {}
+	for k in player.inventory:
+		if player.inventory[k] > 0 and not k in ["alpha_fang", "great_claw", "king_pelt"]:
+			pack[k] = player.inventory[k]
+			player.inventory[k] = 0
+	if not pack.is_empty():
+		spawn_loot(player.position, pack)
+		lost_pack_pos = player.position
+	var home = get_home()
+	player.position = home.center() if home != null else spawn_point
+	cam.position = player.position
+	player.dead = false
+	player.health = player.max_health * 0.5
+	player.temp = maxf(player.temp, 70.0)
+	player.hunger = maxf(player.hunger, 40.0)
+	player.energy = maxf(player.energy, 50.0)
+	player.order_target = null
+	player.move_target = null
+	player.torch_time = 0.0
+	for w in get_tree().get_nodes_in_group("wolf"):
+		if not w.resident and w.position.distance_to(player.position) < 500.0:
+			w.queue_free()
+	game_over = false
+	hud.hide_end()
+	hud.show_message("You wake up at home, aching. Your pack lies where you fell.\nGo get it back before you need it.", 6.0)
 
 
 ## Half of the meat and fish you carry goes bad overnight. Jerky and chest food keep.
@@ -1148,7 +1202,7 @@ func save_game() -> void:
 			"temp": player.temp, "hunger": player.hunger, "energy": player.energy, "health": player.health,
 			"inventory": player.inventory, "tools": player.tools, "gear": player.gear,
 			"weapon": player.weapon, "torch_time": player.torch_time,
-			"skills": player.skills, "armor": player.armor, "level": player.level, "xp": player.xp,
+			"skills": player.skills, "armor": player.armor, "level": player.level, "xp": player.xp, "subclass": player.subclass,
 		},
 		"map": map, "fires": fires, "igloos": igloos, "cabin": cabin, "loot": loot,
 	}
@@ -1213,6 +1267,7 @@ func load_game(data: Dictionary) -> void:
 			player.skills[k] = {"level": int(sk[k]["level"]), "xp": int(sk[k]["xp"])}
 	player.level = int(p.get("level", 1))
 	player.xp = int(p.get("xp", 0))
+	player.subclass = str(p.get("subclass", ""))
 	player.max_health = 200.0 + 14.0 * (player.level - 1)
 	player.torch_time = float(p.get("torch_time", 0.0))
 

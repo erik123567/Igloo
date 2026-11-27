@@ -63,6 +63,8 @@ var _boss_name: Label
 var _boss_bar: ProgressBar
 var _inv_panel: PanelContainer
 var _inv_label: Label
+var _abilities: Label
+var _class_box: CenterContainer
 var _craft: PanelContainer
 var _craft_label: Label
 var _fade: ColorRect
@@ -176,6 +178,11 @@ func _ready() -> void:
 	_inv_label.custom_minimum_size = Vector2(640, 0)
 	_inv_panel.add_child(_inv_label)
 
+	# Ability bar, bottom centre
+	_abilities = _label(15, HORIZONTAL_ALIGNMENT_CENTER)
+	_wide(_abilities, 1.0, -158.0, -132.0)
+	root.add_child(_abilities)
+
 	# Help panel, right side
 	_help = PanelContainer.new()
 	_help.add_theme_stylebox_override("panel", _panel_style())
@@ -230,6 +237,15 @@ func _ready() -> void:
 	_end_title = end[1]
 	_end_text = end[2]
 	_end_buttons = end[3]
+
+	var cls := _make_menu(root, true)
+	_class_box = cls[0]
+	cls[1].text = "CHOOSE YOUR PATH"
+	cls[2].text = "You've reached level 6. Pick a class. This can't be changed."
+	_add_button(cls[3], "Hunter: +4 damage, 20% Giant Swing (+15), longer nets", func(): _pick_class("hunter"))
+	_add_button(cls[3], "Tracker: 12% faster, +25% XP, Track -6 armor", func(): _pick_class("tracker"))
+	_add_button(cls[3], "Shaman: regenerate health, 30% less cold, War cry heals", func(): _pick_class("shaman"))
+	(cls[3] as BoxContainer).vertical = true
 
 	var title := _make_menu(root, true)
 	_title_box = title[0]
@@ -431,11 +447,10 @@ func show_end(won: bool, text: String) -> void:
 		first = _add_button(_end_buttons, "Keep playing", func(): main.continue_endless())
 		_add_button(_end_buttons, "New game", func(): main.restart("new"))
 	else:
+		first = _add_button(_end_buttons, "Wake up at home", func(): main.respawn())
 		if main.has_save():
-			first = _add_button(_end_buttons, "Retry from this morning", func(): main.restart("continue"))
-			_add_button(_end_buttons, "New game", func(): main.restart("new"))
-		else:
-			first = _add_button(_end_buttons, "Try again", func(): main.restart("new"))
+			_add_button(_end_buttons, "Reload this morning", func(): main.restart("continue"))
+		_add_button(_end_buttons, "New game", func(): main.restart("new"))
 	_end_box.visible = true
 	first.grab_focus()
 
@@ -498,6 +513,10 @@ func _process(delta: float) -> void:
 		_prompt.text = player.fishing_prompt()
 
 	_status.text = _status_text()
+	var ab := []
+	for i in 4:
+		ab.append("[%d] %s: %s" % [i + 1, player.ABILITIES[i]["name"], player.ability_ready_text(i)])
+	_abilities.text = "     ".join(PackedStringArray(ab)) + ("     WAR CRY %ds" % int(player.warcry_time) if player.warcry_time > 0.0 else "")
 	var boss = null
 	var bd := 650.0
 	for b in get_tree().get_nodes_in_group("boss"):
@@ -558,6 +577,16 @@ func _status_text() -> String:
 	if home != null and not home.contains(player.position):
 		var to: Vector2 = home.center() - player.position
 		lines.append("Home: %dm %s" % [int(to.length() / 10.0), compass(to)])
+	if main.lost_pack_pos != null:
+		var still := false
+		for l in get_tree().get_nodes_in_group("loot"):
+			if l.position.distance_to(main.lost_pack_pos) < 4.0 and not l.is_queued_for_deletion():
+				still = true
+		if still:
+			var lp: Vector2 = main.lost_pack_pos - player.position
+			lines.append("Your lost pack: %dm %s" % [int(lp.length() / 10.0), compass(lp)])
+		else:
+			main.lost_pack_pos = null
 	var goal: Array = main.current_goal()
 	var gl := "Next: %s" % goal[0]
 	if goal[1] != null:
@@ -672,4 +701,18 @@ func inventory_text() -> String:
 
 ## True when the mouse is busy with a menu, so clicks shouldn't swing.
 func mouse_over_ui() -> bool:
-	return get_tree().paused or craft_open or _title_box.visible
+	return get_tree().paused or craft_open or _title_box.visible or _class_box.visible
+
+
+func show_class_choice() -> void:
+	set_craft_open(false)
+	_class_box.visible = true
+	get_tree().paused = true
+
+
+func _pick_class(c: String) -> void:
+	player.subclass = c
+	_class_box.visible = false
+	get_tree().paused = false
+	main.audio.play("chime", null, 0.0, 0.0, 0.8)
+	show_message("You are now a %s." % c.capitalize(), 5.0)

@@ -251,6 +251,10 @@ func _process(_delta: float) -> bool:
 			p.gain_xp(100000)
 			print("level ", lv0, " -> ", p.level, " max health ", p.max_health, " damage ", p.damage_range())
 			assert(p.level == 30 and p.max_health > 600.0)
+			# level 6+ asks you to pick a class
+			assert(get_root().get_tree().paused)
+			main.hud._pick_class("hunter")
+			assert(p.subclass == "hunter" and not get_root().get_tree().paused)
 			for st in get_nodes_in_group("structure"):
 				if st.kind == "workbench":
 					p.position = st.position + Vector2(0, 40)
@@ -327,6 +331,30 @@ func _process(_delta: float) -> bool:
 			p._cancel_swing()
 			p._update_combat(0.4)
 			assert(w.hp == hp_before)
+			# abilities: throw a spear, then net it
+			test_wolf = w
+			p.tools["spear"] = 4
+			p.energy = 100.0
+			p.inventory["net"] = 1
+			p.ability_cd = [0.0, 0.0, 0.0, 0.0]
+			p.use_ability(1)
+			p.use_ability(2)
+			p.use_ability(3)
+			p.use_ability(0)
+			print("ability cooldowns: ", p.ability_cd, " nets left ", p.inventory["net"], " war cry ", p.warcry_time)
+			assert(p.ability_cd[0] > 0.0 and p.ability_cd[1] > 0.0 and p.inventory["net"] == 0 and p.warcry_time > 0.0)
+		488:
+			if is_instance_valid(test_wolf) and not test_wolf.is_queued_for_deletion():
+				print("wolf after spear and net: hp ", test_wolf.hp, " rooted ", test_wolf._root_t, " slowed ", test_wolf._slow_t)
+				assert(test_wolf._root_t > 0.0)
+			# dying drops your pack and you wake up at home
+			p.inventory["logs"] = 7
+			p.take_damage(99999.0, "a test", false)
+			assert(main.game_over)
+			main.respawn()
+			print("after respawn: health ", p.health, " logs ", p.inventory["logs"], " pack at ", main.lost_pack_pos)
+			assert(not main.game_over and not p.dead and p.inventory["logs"] == 0 and main.lost_pack_pos != null)
+			assert(p.inventory["king_pelt"] == 1)
 		500:
 			print("SMOKE TEST OK: day ", main.day, ", health ", p.health, ", weather ", main.weather.label())
 			return true

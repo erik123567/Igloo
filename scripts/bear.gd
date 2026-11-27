@@ -45,6 +45,10 @@ var _anim := 0.0
 var _moving := false
 var _print_dist := 0.0
 var _windup := 0.0
+var _slow_t := 0.0       # slowed by a thrown spear
+var _root_t := 0.0       # caught in a net
+var _track_t := 0.0      # tracked: armor lowered
+var _track_amt := 0.0
 var _kb := Vector2.ZERO
 var _recover := 0.0      # standing still after an attack: free hits for you
 var _freeze := 0.0       # hitstop
@@ -77,6 +81,34 @@ func reach() -> float:
 	return 18.0 * float(_v["scale"])
 
 
+func apply_slow(t: float) -> void:
+	_slow_t = maxf(_slow_t, t)
+
+
+func apply_root(t: float) -> void:
+	_root_t = maxf(_root_t, t * (0.5 if is_boss() else 1.0))
+
+
+func apply_track(t: float, amount: float) -> void:
+	_track_t = t
+	_track_amt = amount
+
+
+func armor_now() -> float:
+	return float(_v["armor"]) - (_track_amt if _track_t > 0.0 else 0.0)
+
+
+func _status_draw(sc: float) -> void:
+	if _root_t > 0.0:
+		var c := Color(0.85, 0.75, 0.5, 0.9)
+		for k in 4:
+			var x := (-1.5 + k) * 6.0 * sc
+			draw_line(Vector2(x - 6 * sc, -14 * sc), Vector2(x + 6 * sc, 2), c, 1.0)
+			draw_line(Vector2(x + 6 * sc, -14 * sc), Vector2(x - 6 * sc, 2), c, 1.0)
+	if _track_t > 0.0:
+		draw_string(ThemeDB.fallback_font, Vector2(-4, -22 * sc), "v", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 0.8, 0.3))
+
+
 func freeze(t: float) -> void:
 	_freeze = t
 
@@ -93,6 +125,9 @@ func _process(delta: float) -> void:
 	_angry = maxf(_angry - delta, 0.0)
 	_hurt = maxf(_hurt - delta, 0.0)
 	_flash = maxf(_flash - delta, 0.0)
+	_slow_t = maxf(_slow_t - delta, 0.0)
+	_root_t = maxf(_root_t - delta, 0.0)
+	_track_t = maxf(_track_t - delta, 0.0)
 	var player = main.player
 	var to_p: Vector2 = player.position - position
 	var dist := to_p.length()
@@ -131,6 +166,10 @@ func _process(delta: float) -> void:
 				_wander = (home - position).normalized()
 		vel = _wander * ROAM_SPEED
 
+	if _root_t > 0.0:
+		vel = Vector2.ZERO
+	elif _slow_t > 0.0:
+		vel *= 0.7
 	var new_pos := position + vel * delta
 	var push: Vector2 = main.fear_push(new_pos)
 	if push != Vector2.ZERO:
@@ -151,7 +190,7 @@ func _process(delta: float) -> void:
 
 
 func take_hit(player, damage: float = 1.0) -> void:
-	damage = maxf(damage * (1.0 - player.armor_reduction(float(_v["armor"]))), 1.0)
+	damage = maxf(damage * (1.0 - player.armor_reduction(armor_now())), 1.0)
 	hp -= damage
 	_flash = 0.07
 	_hurt = 0.15
@@ -191,6 +230,7 @@ func _draw() -> void:
 	var rear := Vector2(0, -3) if _windup > 0.0 else Vector2.ZERO
 	draw_texture(TEX[frame], Vector2(-15, -15) + rear, tint)
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	_status_draw(sc)
 	if main.player.order_target == self:
 		draw_set_transform(Vector2(0, 2), 0, Vector2(1, 0.5))
 		draw_arc(Vector2.ZERO, hit_radius + 8.0, 0, TAU, 28, Color(1, 0.2, 0.15, 0.9), 1.5)

@@ -78,3 +78,15 @@ func _draw() -> void:
 	var frame := (int(_anim) % 2) if _moving else 0
 	draw_texture(TEX[frame], Vector2(-6, -10))
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+
+
+func apply_slow(_t: float) -> void:
+	pass
+
+
+func apply_root(_t: float) -> void:
+	pass
+
+
+func apply_track(_t: float, _a: float) -> void:
+	pass

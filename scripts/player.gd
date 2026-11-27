@@ -43,6 +43,17 @@ var armor := 0               # armor piece worn: 0 none, 1 bone, 2 iron, 3 frost
 var level := 1
 var xp := 0
 const MAX_LEVEL := 30
+var subclass := ""          # chosen at level 6: "hunter", "tracker" or "shaman"
+
+## Abilities on keys 1-4: unlock level, energy cost, cooldown.
+const ABILITIES := [
+	{"key": "throw", "name": "Throw spear", "level": 1, "energy": 10.0, "cd": 6.0},
+	{"key": "net", "name": "Net", "level": 3, "energy": 5.0, "cd": 12.0},
+	{"key": "track", "name": "Track", "level": 5, "energy": 10.0, "cd": 20.0},
+	{"key": "warcry", "name": "War cry", "level": 8, "energy": 25.0, "cd": 40.0},
+]
+var ability_cd := [0.0, 0.0, 0.0, 0.0]
+var warcry_time := 0.0
 
 ## Skills level up with XP as you play (1 to 10).
 var skills := {
@@ -57,7 +68,7 @@ var inventory := {
 	"berries": 0, "raw_meat": 0, "cooked_meat": 0,
 	"logs": 0, "arrows": 0, "torch": 0, "hide": 0, "bone": 0, "iron": 0,
 	"raw_fish": 0, "cooked_fish": 0, "jerky": 0, "radio_part": 0, "white_fur": 0, "steel": 0,
-	"alpha_fang": 0, "great_claw": 0, "king_pelt": 0,
+	"alpha_fang": 0, "great_claw": 0, "king_pelt": 0, "net": 0,
 }
 var tools := {"axe": 0, "spear": 0, "bow": 0, "rod": 0}   # 0 = don't have it, 1 stone, 2 bone, 3 iron
 var gear := {"mittens": false, "boots": false, "coat": false, "polar_coat": false}
@@ -197,6 +208,10 @@ func _move(delta: float) -> void:
 		speed *= 1.08
 	if armor >= 2:
 		speed *= 0.95
+	if warcry_time > 0.0:
+		speed *= 1.15
+	if subclass == "tracker":
+		speed *= 1.12
 	var want := dir.limit_length(1.0) * speed
 	# snappy: accelerate hard toward where you want to go, brake hard when you stop
 	var rate := ACCEL if wants_move else FRICTION
@@ -236,6 +251,8 @@ func _update_stats(delta: float) -> void:
 	else:
 		rate *= main.weather.cold_multiplier() * main.zone_cold(position)
 	rate *= gear_cold_factor()
+	if subclass == "shaman" and rate < 0.0:
+		rate *= 0.7
 	if rate < 0.0:
 		rate *= 1.0 - 0.04 * (skill("survival") - 1)
 		# braving the cold trains Survival, faster in harsher places
@@ -326,6 +343,9 @@ func _handle_actions() -> void:
 			_use_target()
 		elif Input.is_action_pressed("interact") and target.can_interact(self):
 			_use_target()  # holding E repeats, handy for snow blocks
+	for i in 4:
+		if Input.is_action_just_pressed("ability_%d" % (i + 1)):
+			use_ability(i)
 	if Input.is_action_just_pressed("attack"):
 		var near = _nearest_attackable(220.0)
 		if near != null:
@@ -405,11 +425,15 @@ func damage_range() -> Array:
 	if weapon == "axe" or weapon == "spear":
 		tier = clampi(int(tools[weapon]), 0, tiers.size() - 1)
 	var r: Array = tiers[tier]
-	return [int(r[0]) + level - 1, int(r[1]) + level - 1]
+	var bonus := level - 1 + (4 if subclass == "hunter" else 0)
+	return [int(r[0]) + bonus, int(r[1]) + bonus]
 
 
 func attack_cooldown() -> float:
-	return float(weapon_stats()["cooldown"]) / (1.0 + 0.02 * (level - 1))
+	var spd := 1.0 + 0.02 * (level - 1)
+	if warcry_time > 0.0:
+		spd += 0.3
+	return float(weapon_stats()["cooldown"]) / spd
 
 
 func armor_value() -> float:
@@ -433,6 +457,11 @@ func _cancel_swing() -> void:
 
 func _update_combat(delta: float) -> void:
 	_atk_cd = maxf(_atk_cd - delta, 0.0)
+	for i in 4:
+		ability_cd[i] = maxf(ability_cd[i] - delta, 0.0)
+	warcry_time = maxf(warcry_time - delta, 0.0)
+	if subclass == "shaman" and health < max_health and not dead:
+		health = minf(health + 1.5 * delta, max_health)
 	if _swing_t >= 0.0:
 		_swing_t += delta
 		if _swing_t >= float(weapon_stats()["point"]):
@@ -465,6 +494,9 @@ func _land_blow() -> void:
 		return
 	var dr := damage_range()
 	var dmg := float(randi_range(dr[0], dr[1]))
+	if subclass == "hunter" and randf() < 0.2:
+		dmg += 15.0   # Giant Swing
+		main.float_text(position + Vector2(0, -30), "Giant swing!", Color(1, 0.7, 0.3))
 	var to_t: Vector2 = t.position - position
 	if weapon == "bow":
 		inventory["arrows"] -= 1
@@ -769,6 +801,8 @@ func xp_to_next() -> int:
 func gain_xp(amount: int) -> void:
 	if level >= MAX_LEVEL or amount <= 0:
 		return
+	if subclass == "tracker":
+		amount = int(amount * 1.25)
 	xp += amount
 	main.float_text(position + Vector2(0, -34), "+%d xp" % amount, Color(0.75, 0.6, 1.0))
 	while level < MAX_LEVEL and xp >= xp_to_next():
@@ -779,6 +813,11 @@ func gain_xp(amount: int) -> void:
 		main.audio.play("chime", null, -4.0, 0.0)
 		main.puff(position + Vector2(0, -10), Color(1, 0.9, 0.4), 20, 80.0)
 		main.hud.show_message("Level %d! Max health %d, damage +%d, armor +%.1f." % [level, int(max_health), level - 1, 0.3 * (level - 1)], 5.0)
+		for ab in ABILITIES:
+			if int(ab["level"]) == level:
+				main.hud.show_toast("New ability: %s" % ab["name"])
+		if level >= 6 and subclass == "":
+			main.hud.show_class_choice()
 
 
 func add_xp(name: String, amount: int) -> void:
@@ -803,3 +842,82 @@ func _on_level_up(name: String, level: int) -> void:
 			what = "gathering takes %d%% less energy" % (6 * (level - 1))
 	main.audio.play("chime", null, -6.0, 0.0)
 	main.hud.show_message("%s is now level %d: %s." % [name.capitalize(), level, what], 5.0)
+
+
+# ---------- Abilities ----------
+
+## Who an ability aims at: your current target, else the animal under the mouse, else the nearest.
+func _ability_target(max_range: float):
+	var t = order_target
+	if t == null or not is_instance_valid(t) or t.is_queued_for_deletion():
+		t = animal_at(get_global_mouse_position())
+	if t == null:
+		t = _nearest_attackable(max_range)
+	if t != null and t.position.distance_to(position) > max_range + t.hit_radius:
+		return null
+	return t
+
+
+func ability_ready_text(i: int) -> String:
+	var ab: Dictionary = ABILITIES[i]
+	if level < int(ab["level"]):
+		return "lvl %d" % ab["level"]
+	if ability_cd[i] > 0.0:
+		return "%ds" % int(ceil(ability_cd[i]))
+	if ab["key"] == "net":
+		return "x%d" % inventory["net"]
+	return "ready"
+
+
+func use_ability(i: int) -> void:
+	var ab: Dictionary = ABILITIES[i]
+	if level < int(ab["level"]):
+		say("%s unlocks at level %d." % [ab["name"], ab["level"]])
+		return
+	if ability_cd[i] > 0.0:
+		return
+	var cost: float = ab["energy"]
+	if energy < cost:
+		say("Not enough energy for %s." % ab["name"])
+		return
+	match ab["key"]:
+		"throw":
+			if int(tools["spear"]) == 0:
+				say("You need a spear to throw (Tab).")
+				return
+			var t = _ability_target(280.0)
+			if t == null:
+				say("No animal in throwing range.")
+				return
+			var r: Array = WEAPONS["spear"]["dmg"][clampi(int(tools["spear"]), 0, 4)]
+			var dmg := 1.5 * float(randi_range(int(r[0]) + level - 1, int(r[1]) + level - 1))
+			main.throw_projectile("spear", self, t, dmg)
+			main.audio.play("bow", null, -2.0, 0.0, 0.7)
+		"net":
+			if inventory["net"] <= 0:
+				say("You have no nets. Craft some (Tab): hide and sticks.")
+				return
+			var t = _ability_target(220.0)
+			if t == null:
+				say("No animal in range to net.")
+				return
+			inventory["net"] -= 1
+			main.throw_projectile("net", self, t, 0.0)
+			main.audio.play("swing", null, -4.0, 0.0, 0.6)
+		"track":
+			var t = _ability_target(400.0)
+			if t == null:
+				say("No animal in sight to track.")
+				return
+			t.apply_track(20.0, 6.0 if subclass == "tracker" else 3.0)
+			main.float_text(t.position + Vector2(0, -30), "Tracked: -armor", Color(1, 0.8, 0.3))
+			main.audio.play("chime", null, -10.0, 0.0, 1.4)
+		"warcry":
+			warcry_time = 10.0
+			if subclass == "shaman":
+				health = minf(health + 50.0, max_health)
+			main.float_text(position + Vector2(0, -30), "WAR CRY!", Color(1, 0.5, 0.3))
+			main.audio.play("howl", null, -4.0, 0.0, 1.5)
+			main.shake(3.0)
+	energy -= cost
+	ability_cd[i] = float(ab["cd"])
